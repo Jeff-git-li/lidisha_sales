@@ -8,6 +8,7 @@ async function loadDashboard(){
   const url=`/api/dashboard?region=${encodeURIComponent(region)}&category=${encodeURIComponent(category)}&top_n=${topn}`;
   const data=await (await fetch(url)).json();
   renderKpis(data.summary); renderProducts('globalTop',data.global_top); renderBars('regionBars',data.by_region,'区域名称'); renderBars('categoryBars',data.by_category,'品类'); renderRegionTop(data.region_top); renderProducts('colorTop',data.color_top); renderMatrix(data.matrix); renderCategoryTop(data.category_top);
+  if (!data.image_index_ready) setTimeout(loadDashboard, 3000);
 }
 function renderKpis(s){document.getElementById('kpis').innerHTML=Object.entries(s).map(([k,v])=>`<div class="kpi"><span>${k}</span><b>${fmt(v)}</b></div>`).join('')}
 function renderProducts(id,rows){document.getElementById(id).innerHTML=rows.map(r=>`<div class="product">${imgTag(r.image_url)}<div><div class="rank">#${r.排名}</div><div class="code">${r.商品代码}${r.颜色代码?'_'+r.颜色代码:''}</div><div class="meta">${r.商品名称||''} · ${r.颜色名称||r.品类||''}</div><div class="meta">选定价 ¥${fmt(r.选定价)} · <span class="qty">销量 ${fmt(r.销量)}</span></div></div></div>`).join('') || '<p class="meta">暂无数据</p>'}

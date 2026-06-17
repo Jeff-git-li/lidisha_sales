@@ -5,6 +5,7 @@ import re
 import time
 from functools import lru_cache
 from pathlib import Path
+import threading
 
 import pandas as pd
 from flask import Flask, jsonify, render_template, request, send_file, abort
@@ -34,6 +35,9 @@ CODE_CATEGORY_MAP = {
 
 DATA = None
 IMAGE_INDEX = {}
+IMAGE_INDEX_READY = False
+IMAGE_INDEX_THREAD = None
+IMAGE_INDEX_CACHE_PATH = Path(__file__).with_name("image_index.json")
 APP_CONFIG = {
     "excel_path": None,
     "image_root": DEFAULT_IMAGE_ROOT,
@@ -87,6 +91,14 @@ def normalize_key(code, color):
 
 
 def build_image_index(root: str) -> dict:
+    if IMAGE_INDEX_CACHE_PATH.exists():
+        try:
+            cached = json.loads(IMAGE_INDEX_CACHE_PATH.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and cached:
+                return cached
+        except Exception:
+            pass
+
     index = {}
     root_path = Path(root)
     if not root or not root_path.exists():
@@ -96,10 +108,50 @@ def build_image_index(root: str) -> dict:
             suffix = Path(name).suffix.lower()
             if suffix in IMAGE_EXTS:
                 stem = Path(name).stem.upper()
-                # expected: 商品代码_颜色代码
                 if "_" in stem and stem not in index:
                     index[stem] = str(Path(dirpath) / name)
+    try:
+        IMAGE_INDEX_CACHE_PATH.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
     return index
+
+
+def start_image_index_build(root: str):
+    global IMAGE_INDEX_READY, IMAGE_INDEX_THREAD
+    IMAGE_INDEX_READY = False
+
+    def worker():
+        global IMAGE_INDEX, IMAGE_INDEX_READY
+        IMAGE_INDEX = build_image_index(root)
+        IMAGE_INDEX_READY = True
+
+    IMAGE_INDEX_THREAD = threading.Thread(target=worker, daemon=True)
+    IMAGE_INDEX_THREAD.start()
+
+
+@lru_cache(maxsize=8192)
+def resolve_image_path(root: str, code: str, color: str) -> str | None:
+    root_path = Path(root)
+    if not root or not root_path.exists():
+        return None
+
+    code = str(code).strip().upper()
+    color = str(color).strip().upper()
+    if not code:
+        return None
+
+    candidates = []
+    if color and color != "_":
+        candidates.append(f"{code}_{color}")
+    candidates.append(code)
+
+    for candidate in candidates:
+        for suffix in IMAGE_EXTS:
+            for path in root_path.rglob(f"{candidate}{suffix}"):
+                if path.is_file():
+                    return str(path)
+    return None
 
 
 def agg_rank(df: pd.DataFrame, group_cols, top_n=20, region_filter=None, category=None):
@@ -137,6 +189,32 @@ def sales_summary(df):
         "区域数": int(df["区域名称"].nunique()),
         "品类数": int(df["品类"].nunique()),
     }
+
+
+def build_cover_color_map(df: pd.DataFrame) -> dict:
+    sub = df.copy()
+    sub = sub[sub["颜色代码"].notna()]
+    sub["颜色代码"] = sub["颜色代码"].astype(str).str.strip()
+    sub = sub[sub["颜色代码"].ne("") & sub["颜色代码"].ne("nan")]
+    if sub.empty:
+        return {}
+
+    cover = (
+        sub.sort_values(["数量", "销售额"], ascending=False)
+        .groupby("商品代码", as_index=False)
+        .first()[["商品代码", "颜色代码"]]
+    )
+    return dict(zip(cover["商品代码"], cover["颜色代码"]))
+
+
+def attach_image_urls(rows: list[dict], cover_color_map: dict) -> list[dict]:
+    for r in rows:
+        code = r.get("商品代码", "")
+        color = r.get("颜色代码", "")
+        if not color or color == "_":
+            color = cover_color_map.get(code, "_")
+        r["image_url"] = f"/product-image/{code}/{color}"
+    return rows
 
 
 @app.route("/")
@@ -184,10 +262,11 @@ def api_dashboard():
             r["销量"] = int(round(r["销量"]))
             r["销售额"] = round(float(r["销售额"]), 2)
 
+    cover_color_map = build_cover_color_map(filtered)
     matrix = make_matrix(df, top_n=30)
     return jsonify({
         "summary": sales_summary(filtered),
-        "global_top": agg_rank(filtered, ["商品代码", "商品名称", "品类", "选定价"], top_n),
+        "global_top": attach_image_urls(agg_rank(filtered, ["商品代码", "商品名称", "品类", "选定价"], top_n), cover_color_map),
         "color_top": agg_rank(filtered, ["商品代码", "颜色代码", "颜色名称", "商品名称", "品类", "选定价"], top_n),
         "region_top": region_top,
         "category_top": category_top,
@@ -216,14 +295,12 @@ def make_matrix(df, top_n=30):
 
 @app.route("/product-image/<code>/<color>")
 def product_image(code, color):
-    if not IMAGE_INDEX:
-        abort(404)
-    if color == "_":
-        # fallback: first image for product code
-        prefix = str(code).upper() + "_"
-        path = next((p for k, p in IMAGE_INDEX.items() if k.startswith(prefix)), None)
-    else:
-        path = IMAGE_INDEX.get(normalize_key(code, color))
+    cache_key = normalize_key(code, color)
+    path = IMAGE_INDEX.get(cache_key)
+    if not path:
+        path = resolve_image_path(APP_CONFIG["image_root"], code, color)
+        if path:
+            IMAGE_INDEX[cache_key] = path
     if not path or not os.path.exists(path):
         abort(404)
     return send_file(path)
@@ -231,10 +308,11 @@ def product_image(code, color):
 
 @app.route("/api/reload")
 def api_reload():
-    global DATA, IMAGE_INDEX
+    global DATA
     DATA = load_sales(APP_CONFIG["excel_path"])
-    IMAGE_INDEX = build_image_index(APP_CONFIG["image_root"])
-    return jsonify({"ok": True, "rows": len(DATA), "images": len(IMAGE_INDEX), "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+    start_image_index_build(APP_CONFIG["image_root"])
+    resolve_image_path.cache_clear()
+    return jsonify({"ok": True, "rows": len(DATA), "images": len(IMAGE_INDEX), "image_index_ready": IMAGE_INDEX_READY, "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")})
 
 
 def latest_excel(input_dir: str) -> str:
@@ -265,7 +343,7 @@ if __name__ == "__main__":
     excel_path = args.input or latest_excel(args.input_dir)
     APP_CONFIG.update({"excel_path": excel_path, "image_root": args.image_root, "top_n": args.top_n})
     DATA = load_sales(excel_path)
-    IMAGE_INDEX = build_image_index(args.image_root)
+    start_image_index_build(args.image_root)
     print(f"已加载Excel: {excel_path}")
     print(f"销售记录: {len(DATA):,} 行；图片索引: {len(IMAGE_INDEX):,} 张；图片目录: {args.image_root}")
     print(f"访问地址: http://127.0.0.1:{args.port}")
