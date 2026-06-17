@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>零售销售Top20分析看板</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <h1>零售销售 Top20 分析看板</h1>
+      <p>RPA导出Excel → 自动排行 → 区域 / 品类 / 款色分析</p>
+    </div>
+    <button onclick="reloadData()">刷新数据</button>
+  </header>
+
+  <section class="filters">
+    <label>区域
+      <select id="region">
+        <option value="全国">全国</option>
+        <option value="北区">北区（华北/东北/西北）</option>
+        <option value="中区">中区（华中/西南/华东）</option>
+        <option value="南区">南区（华南）</option>
+        {% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}
+      </select>
+    </label>
+    <label>品类
+      <select id="category">
+        <option value="">全部品类</option>
+        {% for c in categories %}<option value="{{c}}">{{c}}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Top N
+      <select id="topn"><option>10</option><option selected>20</option><option>30</option><option>50</option></select>
+    </label>
+    <button onclick="loadDashboard()">应用筛选</button>
+  </section>
+
+  <section id="kpis" class="kpis"></section>
+
+  <main class="grid">
+    <section class="card wide">
+      <div class="card-title"><h2>全国/筛选 Top 款号</h2><span>按销量排序</span></div>
+      <div id="globalTop" class="product-grid"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-title"><h2>区域贡献</h2><span>销量</span></div>
+      <div id="regionBars"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-title"><h2>品类贡献</h2><span>销量</span></div>
+      <div id="categoryBars"></div>
+    </section>
+
+    <section class="card wide">
+      <div class="card-title"><h2>四大区域 Top20</h2><span>全国 / 北区 / 中区 / 南区</span></div>
+      <div id="regionTop" class="four-col"></div>
+    </section>
+
+    <section class="card wide">
+      <div class="card-title"><h2>款色 Top</h2><span>商品代码_颜色代码 对应图片</span></div>
+      <div id="colorTop" class="product-grid"></div>
+    </section>
+
+    <section class="card wide">
+      <div class="card-title"><h2>爆款矩阵</h2><span>全国款号在各区域的排名和销量</span></div>
+      <div class="table-wrap"><table id="matrixTable"></table></div>
+    </section>
+
+    <section class="card wide">
+      <div class="card-title"><h2>品类 Top20</h2><span>每个品类单独排名</span></div>
+      <div id="categoryTop"></div>
+    </section>
+  </main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
