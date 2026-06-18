@@ -217,6 +217,14 @@ def attach_image_urls(rows: list[dict], cover_color_map: dict) -> list[dict]:
     return rows
 
 
+def attach_image_urls_by_code(rows: list[dict], cover_color_map: dict) -> list[dict]:
+    for r in rows:
+        code = r.get("商品代码", "")
+        color = cover_color_map.get(code, "_")
+        r["image_url"] = f"/product-image/{code}/{color}"
+    return rows
+
+
 @app.route("/")
 def index():
     df = DATA
@@ -262,8 +270,16 @@ def api_dashboard():
             r["销量"] = int(round(r["销量"]))
             r["销售额"] = round(float(r["销售额"]), 2)
 
-    cover_color_map = build_cover_color_map(filtered)
-    matrix = make_matrix(df, top_n=30)
+    cover_color_map = build_cover_color_map(df)
+    region_top = {
+        name: attach_image_urls_by_code(rows, cover_color_map)
+        for name, rows in region_top.items()
+    }
+    category_top = {
+        cat: attach_image_urls_by_code(rows, cover_color_map)
+        for cat, rows in category_top.items()
+    }
+    matrix = attach_image_urls_by_code(make_matrix(df, top_n=30), cover_color_map)
     return jsonify({
         "summary": sales_summary(filtered),
         "global_top": attach_image_urls(agg_rank(filtered, ["商品代码", "商品名称", "品类", "选定价"], top_n), cover_color_map),

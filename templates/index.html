@@ -3,14 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>零售销售Top20分析看板</title>
+  <title>本周零售数据分析看板</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <header class="hero">
     <div>
-      <h1>零售销售 Top20 分析看板</h1>
-      <p>RPA导出Excel → 自动排行 → 区域 / 品类 / 款色分析</p>
+      <h1>本周零售数据分析看板</h1>
     </div>
     <button onclick="reloadData()">刷新数据</button>
   </header>
@@ -77,5 +76,11 @@
   </main>
 
 <script src="/static/app.js"></script>
+<div id="imageModal" onclick="closeImagePreview()">
+  <div class="modal-shell" onclick="event.stopPropagation()">
+    <button class="close-btn" onclick="closeImagePreview()">×</button>
+    <img id="imageModalImg" alt="产品大图" />
+  </div>
+</div>
 </body>
 </html>
