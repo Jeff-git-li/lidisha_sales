@@ -3,18 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>本周零售数据分析看板</title>
+  <title>丽迪莎零售数据分析看板</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <header class="hero">
     <div>
-      <h1>本周零售数据分析看板</h1>
+      <h1>丽迪莎零售数据分析看板</h1>
     </div>
     <button onclick="reloadData()">刷新数据</button>
   </header>
 
   <section class="filters">
+    <label>日期范围
+      <select id="datePreset">
+        <option value="week" selected>近一周</option>
+        <option value="month">近一月</option>
+        <option value="custom">自定义</option>
+      </select>
+    </label>
+    <label>开始日期
+      <input id="startDate" type="date" min="{{ date_min }}" max="{{ date_max }}" />
+    </label>
+    <label>结束日期
+      <input id="endDate" type="date" min="{{ date_min }}" max="{{ date_max }}" />
+    </label>
     <label>区域
       <select id="region">
         <option value="全国">全国</option>
@@ -30,6 +43,22 @@
         {% for c in categories %}<option value="{{c}}">{{c}}</option>{% endfor %}
       </select>
     </label>
+    <label>年份
+      <select id="yearPrefix">
+        {% for y in year_options %}<option value="{{y.value}}" {% if y.value == default_year_prefix %}selected{% endif %}>{{y.label}}</option>{% endfor %}
+      </select>
+    </label>
+    <label>季节
+      <select id="seasonCode">
+        {% for s in season_options %}<option value="{{s.value}}" {% if s.value == default_season_code %}selected{% endif %}>{{s.label}}</option>{% endfor %}
+      </select>
+    </label>
+    <label>商店
+      <select id="store">
+        <option value="">全部商店</option>
+        {% for s in stores %}<option value="{{s}}">{{s}}</option>{% endfor %}
+      </select>
+    </label>
     <label>Top N
       <select id="topn"><option>10</option><option selected>20</option><option>30</option><option>50</option></select>
     </label>
@@ -40,38 +69,46 @@
 
   <main class="grid">
     <section class="card wide">
-      <div class="card-title"><h2>全国/筛选 Top 款号</h2><span>按销量排序</span></div>
-      <div id="globalTop" class="product-grid"></div>
-    </section>
-
-    <section class="card">
-      <div class="card-title"><h2>区域贡献</h2><span>销量</span></div>
-      <div id="regionBars"></div>
-    </section>
-
-    <section class="card">
-      <div class="card-title"><h2>品类贡献</h2><span>销量</span></div>
-      <div id="categoryBars"></div>
-    </section>
-
-    <section class="card wide">
-      <div class="card-title"><h2>四大区域 Top20</h2><span>全国 / 北区 / 中区 / 南区</span></div>
-      <div id="regionTop" class="four-col"></div>
-    </section>
-
-    <section class="card wide">
-      <div class="card-title"><h2>款色 Top</h2><span>商品代码_颜色代码 对应图片</span></div>
-      <div id="colorTop" class="product-grid"></div>
-    </section>
-
-    <section class="card wide">
-      <div class="card-title"><h2>爆款矩阵</h2><span>全国款号在各区域的排名和销量</span></div>
-      <div class="table-wrap"><table id="matrixTable"></table></div>
-    </section>
-
-    <section class="card wide">
-      <div class="card-title"><h2>品类 Top20</h2><span>每个品类单独排名</span></div>
-      <div id="categoryTop"></div>
+      <div class="card-title"><h2>销售视图</h2><span>KU + 2 默认，可按年份和季节切换</span></div>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab-target="globalTopTab">款号 Top</button>
+        <button class="tab-btn" data-tab-target="colorTopTab">款色 Top</button>
+        <button class="tab-btn" data-tab-target="distributionTab">销量分布</button>
+        <button class="tab-btn" data-tab-target="regionTopTab">区域排行</button>
+        <button class="tab-btn" data-tab-target="matrixTab">爆款矩阵</button>
+        <button class="tab-btn" data-tab-target="slowMovingTab">滞销品</button>
+      </div>
+      <div id="globalTopTab" class="tab-panel active">
+        <div id="globalTop" class="product-grid"></div>
+      </div>
+      <div id="colorTopTab" class="tab-panel">
+        <div id="colorTop" class="product-grid"></div>
+      </div>
+      <div id="distributionTab" class="tab-panel">
+        <div class="distribution-grid">
+          <section class="subcard">
+            <div class="card-title"><h2>区域贡献</h2><span>销量</span></div>
+            <div id="regionBars"></div>
+          </section>
+          <section class="subcard">
+            <div class="card-title"><h2>品类贡献</h2><span>销量</span></div>
+            <div id="categoryBars"></div>
+          </section>
+          <section class="subcard">
+            <div class="card-title"><h2>商店 Top</h2><span>销量</span></div>
+            <div id="storeBars"></div>
+          </section>
+        </div>
+      </div>
+      <div id="regionTopTab" class="tab-panel">
+        <div id="regionTop" class="four-col"></div>
+      </div>
+      <div id="matrixTab" class="tab-panel">
+        <div class="table-wrap"><table id="matrixTable"></table></div>
+      </div>
+      <div id="slowMovingTab" class="tab-panel">
+        <div id="slowMoving" class="product-grid"></div>
+      </div>
     </section>
   </main>
 
