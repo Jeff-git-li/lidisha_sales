@@ -212,16 +212,20 @@ def load_inventory(excel_path: str) -> pd.DataFrame:
     header_row = find_inventory_header_row(excel_path)
     df = pd.read_excel(excel_path, header=header_row)
     df.columns = [str(c).strip() for c in df.columns]
-    keep = [c for c in ["商品代码", "颜色名称", "颜色代码", "选定价", "数量"] if c in df.columns]
+    keep = [c for c in ["商品代码", "商品名称", "颜色名称", "颜色代码", "选定价", "数量"] if c in df.columns]
     df = df[keep].copy()
     df = df[df["商品代码"].notna() & df["数量"].notna()]
     df["商品代码"] = df["商品代码"].astype(str).str.strip()
     df = df[df["商品代码"].apply(include_product_code)]
+    if "商品名称" in df.columns:
+        df["商品名称"] = df["商品名称"].fillna("").astype(str).str.strip()
+        df.loc[df["商品名称"].eq(""), "商品名称"] = df.loc[df["商品名称"].eq(""), "商品代码"]
+    else:
+        df["商品名称"] = df["商品代码"]
     df["颜色代码"] = df.get("颜色代码", "").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
     df["颜色名称"] = df.get("颜色名称", "").fillna("").astype(str).str.strip()
     df["选定价"] = pd.to_numeric(df.get("选定价", 0), errors="coerce").fillna(0)
     df["数量"] = pd.to_numeric(df["数量"], errors="coerce").fillna(0)
-    df["商品名称"] = df["商品代码"]
     df = enrich_season_columns(df)
     df["品类"] = df["商品代码"].apply(infer_category)
     return df
@@ -762,6 +766,21 @@ def api_dashboard():
             r["销量"] = int(round(r["销量"]))
             r["销售额"] = round(float(r["销售额"]), 2)
 
+    daily_sales = (
+        filtered.groupby("日期", as_index=False)
+        .agg(销量=("数量", "sum"), 销售额=("销售额", "sum"))
+        .sort_values("日期")
+        .to_dict(orient="records")
+    )
+    daily_sales = [
+        {
+            "日期": row["日期"].strftime("%Y-%m-%d") if hasattr(row["日期"], "strftime") else str(row["日期"]),
+            "销量": int(round(row["销量"])),
+            "销售额": round(float(row["销售额"]), 2),
+        }
+        for row in daily_sales
+    ]
+
     region_top = {
         name: attach_image_urls_by_code(rows, cover_color_map)
         for name, rows in region_top.items()
@@ -776,6 +795,7 @@ def api_dashboard():
         "by_region": by_region,
         "by_category": by_category,
         "by_store": by_store,
+        "daily_sales": daily_sales,
         "matrix": matrix,
         "filters": filters,
         "meta": {

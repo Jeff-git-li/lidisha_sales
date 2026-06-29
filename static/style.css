@@ -20,9 +20,22 @@
 
 .kpis{grid-template-columns:repeat(7,minmax(0,1fr))}
 .grid{grid-template-columns:minmax(0,1fr)}
+.card{padding:20px}
 .filters select,.filters input[type="date"]{min-width:140px}
 .distribution-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .subcard{background:#fbfcfe;border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0}
+.product-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.product{grid-template-columns:72px 1fr;min-height:118px;padding:14px}
+.product img{width:72px;height:72px}
+.tab-panel{padding-top:4px}
+.chart-shell{background:#fbfcfe;border:1px solid var(--line);border-radius:16px;padding:14px;min-height:420px}
+.chart-legend{display:flex;gap:18px;align-items:center;margin:2px 4px 12px;color:var(--muted);font-size:13px}
+.chart-legend span{display:inline-flex;align-items:center;gap:8px}
+.legend-dot{display:inline-block;width:10px;height:10px;border-radius:999px}
+.legend-dot.qty{background:var(--accent)}
+.legend-dot.amt{background:#ea580c}
+.trend-svg{width:100%;height:auto;display:block}
+.axis-label{fill:#64748b;font-size:12px;font-family:"Microsoft YaHei",Arial,sans-serif}
 
 @media (max-width: 1500px){
 	.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}

@@ -71,14 +71,18 @@
     <section class="card wide">
       <div class="card-title"><h2>销售视图</h2><span>KU + 2 默认，可按年份和季节切换</span></div>
       <div class="tabs">
-        <button class="tab-btn active" data-tab-target="globalTopTab">款号 Top</button>
+        <button class="tab-btn active" data-tab-target="trendTab">日销售趋势</button>
+        <button class="tab-btn" data-tab-target="globalTopTab">款号 Top</button>
         <button class="tab-btn" data-tab-target="colorTopTab">款色 Top</button>
         <button class="tab-btn" data-tab-target="distributionTab">销量分布</button>
         <button class="tab-btn" data-tab-target="regionTopTab">区域排行</button>
         <button class="tab-btn" data-tab-target="matrixTab">爆款矩阵</button>
         <button class="tab-btn" data-tab-target="slowMovingTab">滞销品</button>
       </div>
-      <div id="globalTopTab" class="tab-panel active">
+      <div id="trendTab" class="tab-panel active">
+        <div id="dailySalesChart" class="chart-shell"></div>
+      </div>
+      <div id="globalTopTab" class="tab-panel">
         <div id="globalTop" class="product-grid"></div>
       </div>
       <div id="colorTopTab" class="tab-panel">
