@@ -35,6 +35,9 @@
 .legend-dot.qty{background:var(--accent)}
 .legend-dot.amt{background:#ea580c}
 .trend-svg{width:100%;height:auto;display:block}
+.hover-zone{cursor:crosshair}
+.chart-tooltip{position:absolute;z-index:2;pointer-events:none;min-width:160px;max-width:220px;background:rgba(15,23,42,.92);color:#fff;border-radius:12px;padding:10px 12px;box-shadow:0 12px 30px #0003;font-size:13px;line-height:1.45}
+.chart-tooltip b{display:block;margin-bottom:4px}
 .axis-label{fill:#64748b;font-size:12px;font-family:"Microsoft YaHei",Arial,sans-serif}
 
 @media (max-width: 1500px){
