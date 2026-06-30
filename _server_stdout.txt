@@ -1,6 +1,0 @@
-已加载Excel: c:\Users\Administrator\Documents\丽迪莎数据分析\retail_dashboard_app\exports\零售销售分析2026-06-22.xlsx
-销售记录: 131,134 行；图片索引: 0 张；图片目录: R:\商品部\2026年商品
-访问地址: http://127.0.0.1:5008
-局域网访问: http://本机IP:5008
- * Serving Flask app 'app'
- * Debug mode: off

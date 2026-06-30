@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime, timedelta
 import json
 import os
 import re
@@ -18,7 +19,7 @@ IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 REGION_GROUPS = {
     "全国": [],
     "北区": ["华北", "东北", "西北"],
-    "中区": ["华中", "西南", "华东"],
+    "中区": ["华中", "西南", "华东", "河南"],
     "南区": ["华南"],
 }
 CODE_CATEGORY_MAP = {
@@ -63,6 +64,8 @@ INVENTORY_DATA = None
 IMAGE_INDEX = {}
 IMAGE_INDEX_READY = False
 IMAGE_INDEX_THREAD = None
+AUTO_REFRESH_THREAD = None
+DATA_REFRESH_LOCK = threading.Lock()
 IMAGE_INDEX_CACHE_PATH = Path(__file__).with_name("image_index.json")
 DB_PATH = Path(__file__).with_name("retail_dashboard.db")
 EXPORT_DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})")
@@ -74,6 +77,9 @@ APP_CONFIG = {
 }
 DEFAULT_YEAR_PREFIX = "KU"
 DEFAULT_SEASON_CODE = "2"
+SALES_CSV_GLOB = "零售销售分析*.csv"
+AUTO_REFRESH_HOUR = 7
+AUTO_REFRESH_MINUTE = 10
 
 
 def find_header_row(excel_path: str, sheet_name=0) -> int:
@@ -100,6 +106,33 @@ def include_product_code(code: str) -> bool:
         return False
     match = re.match(r"^[A-Z]+\d{2}([A-Z])", code)
     return not (match and match.group(1) in EXCLUDED_CATEGORY_CODES)
+
+
+def clean_text_value(value) -> str:
+    text = "" if pd.isna(value) else str(value).strip()
+    if text.startswith('="') and text.endswith('"'):
+        text = text[2:-1]
+    elif text.startswith('="'):
+        text = text[2:]
+    elif text.startswith('='):
+        text = text[1:]
+    return text.strip()
+
+
+def read_sales_csv_file(csv_path: str) -> pd.DataFrame:
+    required_columns = {"款号", "零售数量"}
+    attempts = []
+    for encoding in ("utf-8-sig", "gb18030", "utf-8"):
+        try:
+            df = pd.read_csv(csv_path, dtype=str, encoding=encoding, sep=None, engine="python")
+        except Exception as exc:
+            attempts.append(f"{encoding}: {exc}")
+            continue
+        df.columns = [str(c).strip() for c in df.columns]
+        if required_columns.issubset(df.columns):
+            return df
+        attempts.append(f"{encoding}: 缺少必要列 {sorted(required_columns - set(df.columns))}")
+    raise ValueError(f"无法读取CSV文件: {csv_path}; 尝试结果: {' | '.join(attempts)}")
 
 
 def infer_export_date(excel_path: str) -> pd.Timestamp:
@@ -198,6 +231,79 @@ def load_sales(excel_path: str) -> pd.DataFrame:
     return df
 
 
+def load_sales_csv(csv_path: str) -> pd.DataFrame:
+    df = read_sales_csv_file(csv_path)
+    keep_map = {
+        "店仓名称": "商店名称",
+        "款号": "商品代码",
+        "条码.颜色": "颜色名称",
+        "单据日期.日期": "日期",
+        "零售数量": "数量",
+        "吊牌金额": "选定价",
+        "成交金额": "销售额",
+    }
+    available = [source for source in keep_map if source in df.columns]
+    df = df[available].rename(columns=keep_map).copy()
+    if "商品代码" not in df.columns or "数量" not in df.columns:
+        raise ValueError(f"CSV缺少必要列: {csv_path}")
+
+    for column in ["商品代码", "商店名称", "颜色名称", "日期", "数量", "选定价", "销售额"]:
+        if column in df.columns:
+            df[column] = df[column].map(clean_text_value)
+
+    df["商品代码"] = df["商品代码"].fillna("").astype(str).str.strip().str.upper()
+    if "颜色名称" in df.columns:
+        df["颜色名称"] = df["颜色名称"].fillna("").astype(str).str.strip()
+
+    df = df[df["商品代码"].apply(include_product_code)]
+
+    df["商店名称"] = df.get("商店名称", "").replace("", pd.NA)
+    if isinstance(df["商店名称"], pd.Series):
+        df["商店名称"] = df["商店名称"].fillna("未提供商店")
+    else:
+        df["商店名称"] = "未提供商店"
+
+    df["区域名称"] = "河南"
+    df["颜色名称"] = df.get("颜色名称", "未提供颜色")
+    if isinstance(df["颜色名称"], pd.Series):
+        df.loc[df["颜色名称"].eq(""), "颜色名称"] = "未提供颜色"
+        df["颜色名称"] = df["颜色名称"].fillna("未提供颜色")
+    else:
+        df["颜色名称"] = "未提供颜色"
+
+    inventory_exact_lookup, inventory_fallback_lookup = inventory_color_lookups()
+    sales_exact_lookup, sales_fallback_lookup = sales_color_lookups()
+    df["颜色代码"] = [
+        inventory_exact_lookup.get(
+            (code, color_name),
+            sales_exact_lookup.get(
+                (code, color_name),
+                inventory_fallback_lookup.get(code, sales_fallback_lookup.get(code, "")),
+            ),
+        )
+        for code, color_name in zip(df["商品代码"], df["颜色名称"])
+    ]
+    df["颜色代码"] = pd.Series(df["颜色代码"], index=df.index).fillna("").astype(str).str.strip()
+
+    df["选定价"] = pd.to_numeric(df.get("选定价", 0), errors="coerce").fillna(0)
+    df["数量"] = pd.to_numeric(df["数量"], errors="coerce").fillna(0)
+    if "销售额" in df.columns:
+        df["销售额"] = pd.to_numeric(df["销售额"], errors="coerce").fillna(0)
+    else:
+        df["销售额"] = df["数量"] * df["选定价"]
+
+    df["商品名称"] = df["商品代码"].apply(infer_category)
+    if "日期" in df.columns:
+        df["日期"] = pd.to_datetime(df["日期"], format="%Y%m%d", errors="coerce").dt.normalize()
+    else:
+        df["日期"] = pd.NaT
+    df["日期"] = df["日期"].fillna(infer_export_date(csv_path))
+
+    df = enrich_season_columns(df)
+    df["品类"] = df["商品代码"].apply(infer_category)
+    return df
+
+
 def find_inventory_header_row(excel_path: str, sheet_name=0) -> int:
     probe = pd.read_excel(excel_path, sheet_name=sheet_name, header=None, nrows=80)
     required = {"商品代码", "颜色代码", "数量"}
@@ -229,6 +335,70 @@ def load_inventory(excel_path: str) -> pd.DataFrame:
     df = enrich_season_columns(df)
     df["品类"] = df["商品代码"].apply(infer_category)
     return df
+
+
+def build_color_lookups(df: pd.DataFrame) -> tuple[dict, dict]:
+    if df.empty:
+        return {}, {}
+
+    lookup_df = df[["商品代码", "颜色名称", "颜色代码"]].copy()
+    lookup_df["商品代码"] = lookup_df["商品代码"].fillna("").astype(str).str.strip().str.upper()
+    lookup_df["颜色名称"] = lookup_df["颜色名称"].fillna("").astype(str).str.strip()
+    lookup_df["颜色代码"] = lookup_df["颜色代码"].fillna("").astype(str).str.strip()
+    lookup_df = lookup_df[lookup_df["商品代码"].ne("")]
+
+    exact_df = lookup_df[lookup_df["颜色名称"].ne("") & lookup_df["颜色代码"].ne("")]
+    exact_df = exact_df.drop_duplicates(subset=["商品代码", "颜色名称"], keep="first")
+    exact_lookup = {
+        (row["商品代码"], row["颜色名称"]): row["颜色代码"]
+        for _, row in exact_df.iterrows()
+    }
+
+    unique_color_counts = lookup_df[lookup_df["颜色代码"].ne("")].groupby("商品代码")["颜色代码"].nunique()
+    single_color_codes = lookup_df[lookup_df["颜色代码"].ne("")].drop_duplicates(subset=["商品代码", "颜色代码"], keep="first")
+    fallback_lookup = {
+        row["商品代码"]: row["颜色代码"]
+        for _, row in single_color_codes.iterrows()
+        if unique_color_counts.get(row["商品代码"], 0) == 1
+    }
+    return exact_lookup, fallback_lookup
+
+
+@lru_cache(maxsize=1)
+def inventory_color_lookup_cache(inventory_path: str, file_mtime: float) -> tuple[dict, dict]:
+    df = load_inventory(inventory_path)
+    return build_color_lookups(df)
+
+
+def inventory_color_lookups() -> tuple[dict, dict]:
+    inventory_path = APP_CONFIG.get("inventory_path")
+    if not inventory_path:
+        try:
+            inventory_path = latest_matching_excel(APP_CONFIG["input_dir"], INVENTORY_FILE_GLOB)
+        except FileNotFoundError:
+            return {}, {}
+    file_mtime = os.path.getmtime(inventory_path)
+    return inventory_color_lookup_cache(inventory_path, file_mtime)
+
+
+@lru_cache(maxsize=1)
+def sales_color_lookup_cache(source_paths_key: tuple[str, ...], mtimes_key: tuple[float, ...]) -> tuple[dict, dict]:
+    frames = [load_sales(path) for path in source_paths_key if str(path).lower().endswith(".xlsx")]
+    if not frames:
+        return {}, {}
+    return build_color_lookups(pd.concat(frames, ignore_index=True))
+
+
+def sales_color_lookups() -> tuple[dict, dict]:
+    if APP_CONFIG.get("excel_path"):
+        source_paths = [APP_CONFIG["excel_path"]]
+    else:
+        source_paths = [path for path in sales_source_files(APP_CONFIG["input_dir"]) if str(path).lower().endswith(".xlsx")]
+    if not source_paths:
+        return {}, {}
+    resolved = [str(Path(path).resolve()) for path in source_paths]
+    mtimes = [Path(path).stat().st_mtime for path in resolved]
+    return sales_color_lookup_cache(tuple(resolved), tuple(mtimes))
 
 
 def clear_import_tables(conn: sqlite3.Connection):
@@ -337,6 +507,12 @@ def latest_matching_excel(input_dir: str, pattern: str) -> str:
     return list_excel_files(input_dir, pattern)[-1]
 
 
+def sales_source_files(input_dir: str) -> list[str]:
+    files = list_excel_files(input_dir, SALES_FILE_GLOB) + list_excel_files(input_dir, SALES_CSV_GLOB)
+    unique_files = sorted({str(Path(path).resolve()) for path in files}, key=lambda item: Path(item).stat().st_mtime)
+    return unique_files
+
+
 def aggregate_import_rows(df: pd.DataFrame) -> pd.DataFrame:
     grouped = (
         df.groupby(["日期", "商店名称", "区域名称", "商品代码", "颜色代码"], as_index=False)
@@ -361,6 +537,64 @@ def import_sales_file(conn: sqlite3.Connection, excel_path: str):
         return
 
     df = aggregate_import_rows(load_sales(excel_path))
+    conn.execute("DELETE FROM sales_daily WHERE source_file = ?", (file_path,))
+
+    products = df[["商品代码", "商品名称", "品类"]].drop_duplicates().itertuples(index=False, name=None)
+    conn.executemany(
+        "INSERT INTO products(product_code, product_name, category) VALUES (?, ?, ?) ON CONFLICT(product_code) DO UPDATE SET product_name=excluded.product_name, category=excluded.category",
+        list(products),
+    )
+
+    product_colors = df[["商品代码", "颜色代码", "颜色名称"]].drop_duplicates().itertuples(index=False, name=None)
+    conn.executemany(
+        "INSERT INTO product_colors(product_code, color_code, color_name) VALUES (?, ?, ?) ON CONFLICT(product_code, color_code) DO UPDATE SET color_name=excluded.color_name",
+        list(product_colors),
+    )
+
+    stores = df[["商店名称", "区域名称"]].drop_duplicates().itertuples(index=False, name=None)
+    conn.executemany(
+        "INSERT INTO stores(store_name, region_name) VALUES (?, ?) ON CONFLICT(store_name) DO UPDATE SET region_name=excluded.region_name",
+        list(stores),
+    )
+
+    facts = [
+        (
+            row["日期"],
+            row["商店名称"],
+            row["商品代码"],
+            row["颜色代码"],
+            float(row["选定价"]),
+            float(row["数量"]),
+            float(row["销售额"]),
+            file_path,
+        )
+        for _, row in df.iterrows()
+    ]
+    conn.executemany(
+        "INSERT OR REPLACE INTO sales_daily(sale_date, store_name, product_code, color_code, selected_price, quantity, amount, source_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        facts,
+    )
+
+    start_date = df["日期"].min() if not df.empty else None
+    end_date = df["日期"].max() if not df.empty else None
+    conn.execute(
+        "INSERT OR REPLACE INTO imports(file_path, file_mtime, imported_at, row_count, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?)",
+        (file_path, file_mtime, time.strftime("%Y-%m-%d %H:%M:%S"), len(df), start_date, end_date),
+    )
+
+
+def import_sales_data(conn: sqlite3.Connection, source_path: str):
+    if Path(source_path).suffix.lower() == ".csv":
+        df = aggregate_import_rows(load_sales_csv(source_path))
+    else:
+        df = aggregate_import_rows(load_sales(source_path))
+
+    file_path = str(Path(source_path).resolve())
+    file_mtime = Path(source_path).stat().st_mtime
+    imported = conn.execute("SELECT file_mtime FROM imports WHERE file_path = ?", (file_path,)).fetchone()
+    if imported and float(imported["file_mtime"]) == float(file_mtime):
+        return
+
     conn.execute("DELETE FROM sales_daily WHERE source_file = ?", (file_path,))
 
     products = df[["商品代码", "商品名称", "品类"]].drop_duplicates().itertuples(index=False, name=None)
@@ -442,10 +676,10 @@ def refresh_sales_data() -> pd.DataFrame:
         init_db(conn)
         clear_import_tables(conn)
         if APP_CONFIG.get("excel_path"):
-            import_sales_file(conn, APP_CONFIG["excel_path"])
+            import_sales_data(conn, APP_CONFIG["excel_path"])
         else:
-            for excel_path in list_excel_files(APP_CONFIG["input_dir"], SALES_FILE_GLOB):
-                import_sales_file(conn, excel_path)
+            for source_path in sales_source_files(APP_CONFIG["input_dir"]):
+                import_sales_data(conn, source_path)
         conn.commit()
         return load_sales_from_db(conn)
 
@@ -471,6 +705,52 @@ def start_image_index_build(root: str):
 
     IMAGE_INDEX_THREAD = threading.Thread(target=worker, daemon=True)
     IMAGE_INDEX_THREAD.start()
+
+
+def reload_dashboard_data(trigger: str = "manual") -> dict:
+    global DATA, INVENTORY_DATA
+    with DATA_REFRESH_LOCK:
+        DATA = refresh_sales_data()
+        INVENTORY_DATA = refresh_inventory_data()
+        start_image_index_build(APP_CONFIG["image_root"])
+        resolve_image_path.cache_clear()
+        return {
+            "trigger": trigger,
+            "rows": len(DATA) if DATA is not None else 0,
+            "images": len(IMAGE_INDEX),
+            "image_index_ready": IMAGE_INDEX_READY,
+            "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+
+def next_auto_refresh_time(now: datetime | None = None) -> datetime:
+    now = now or datetime.now()
+    target = now.replace(hour=AUTO_REFRESH_HOUR, minute=AUTO_REFRESH_MINUTE, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return target
+
+
+def auto_refresh_loop():
+    while True:
+        run_at = next_auto_refresh_time()
+        wait_seconds = max(1.0, (run_at - datetime.now()).total_seconds())
+        time.sleep(wait_seconds)
+        try:
+            result = reload_dashboard_data(trigger="scheduled")
+            print(f"[{result['loaded_at']}] 每日自动刷新完成：{result['rows']:,}行")
+        except Exception as exc:
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 每日自动刷新失败：{exc}")
+
+
+def start_auto_refresh_scheduler():
+    global AUTO_REFRESH_THREAD
+    if AUTO_REFRESH_THREAD and AUTO_REFRESH_THREAD.is_alive():
+        return
+    AUTO_REFRESH_THREAD = threading.Thread(target=auto_refresh_loop, name="daily-auto-refresh", daemon=True)
+    AUTO_REFRESH_THREAD.start()
+    next_run = next_auto_refresh_time().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"已启用每日自动刷新：每天 {AUTO_REFRESH_HOUR:02d}:{AUTO_REFRESH_MINUTE:02d}，下次执行 {next_run}")
 
 
 @lru_cache(maxsize=8192)
@@ -708,7 +988,12 @@ def attach_image_urls_by_code(rows: list[dict], cover_color_map: dict) -> list[d
 def index():
     df = DATA
     summary = sales_summary(df)
-    regions = sorted(df["区域名称"].dropna().unique().tolist())
+    grouped_regions = {member for members in REGION_GROUPS.values() for member in members}
+    regions = [
+        region
+        for region in sorted(df["区域名称"].dropna().unique().tolist())
+        if region and region not in grouped_regions and region not in REGION_GROUPS and region != "未定义"
+    ]
     categories = sorted(df["品类"].dropna().unique().tolist())
     stores = sorted(df["商店名称"].dropna().unique().tolist()) if "商店名称" in df.columns else []
     year_options = year_option_rows(df)
@@ -842,12 +1127,8 @@ def product_image(code, color):
 
 @app.route("/api/reload")
 def api_reload():
-    global DATA, INVENTORY_DATA
-    DATA = refresh_sales_data()
-    INVENTORY_DATA = refresh_inventory_data()
-    start_image_index_build(APP_CONFIG["image_root"])
-    resolve_image_path.cache_clear()
-    return jsonify({"ok": True, "rows": len(DATA), "images": len(IMAGE_INDEX), "image_index_ready": IMAGE_INDEX_READY, "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+    result = reload_dashboard_data(trigger="manual")
+    return jsonify({"ok": True, **result})
 
 
 def latest_excel(input_dir: str) -> str:
@@ -869,11 +1150,10 @@ if __name__ == "__main__":
     args = parse_args()
     excel_path = args.input or latest_excel(args.input_dir)
     APP_CONFIG.update({"excel_path": excel_path if args.input else None, "inventory_path": None, "input_dir": args.input_dir, "image_root": args.image_root, "top_n": args.top_n})
-    DATA = refresh_sales_data()
-    INVENTORY_DATA = refresh_inventory_data()
-    start_image_index_build(args.image_root)
+    initial_result = reload_dashboard_data(trigger="startup")
+    start_auto_refresh_scheduler()
     print(f"已加载Excel: {excel_path}")
-    print(f"销售记录: {len(DATA):,} 行；图片索引: {len(IMAGE_INDEX):,} 张；图片目录: {args.image_root}")
+    print(f"销售记录: {initial_result['rows']:,} 行；图片索引: {initial_result['images']:,} 张；图片目录: {args.image_root}")
     print(f"访问地址: http://127.0.0.1:{args.port}")
     print(f"局域网访问: http://本机IP:{args.port}")
     app.run(host=args.host, port=args.port, debug=False)
