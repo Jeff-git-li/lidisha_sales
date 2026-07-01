@@ -4,7 +4,30 @@ function openImagePreview(url) { const modal = document.getElementById('imageMod
 function closeImagePreview() { const modal = document.getElementById('imageModal'); const img = document.getElementById('imageModalImg'); if (!modal || !img) return; modal.classList.remove('open'); img.src = '' }
 function syncDateInputs() { const preset = document.getElementById('datePreset').value; const disabled = preset !== 'custom'; document.getElementById('startDate').disabled = disabled; document.getElementById('endDate').disabled = disabled }
 function initTabs() { document.querySelectorAll('.tab-btn').forEach(btn => { btn.addEventListener('click', () => { const target = btn.dataset.tabTarget; const group = btn.parentElement; group.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn)); const container = group.parentElement; container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === target)); }); }); }
-async function reloadData() { const r = await fetch('/api/reload'); const j = await r.json(); alert(`刷新完成：${j.rows}行，图片${j.images}张`); loadDashboard(); }
+async function reloadData() {
+  const button = document.querySelector('button[onclick="reloadData()"]');
+  const previousText = button ? button.textContent : '';
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = '刷新中...';
+    }
+    const response = await fetch('/api/reload');
+    const payload = await response.json();
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || `刷新失败：HTTP ${response.status}`);
+    }
+    alert(`刷新完成：${payload.rows}行，图片${payload.images}张`);
+    await loadDashboard();
+  } catch (error) {
+    alert(`刷新失败：${error.message}`);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText || '刷新数据';
+    }
+  }
+}
 function renderDailySalesChart(rows) {
   const el = document.getElementById('dailySalesChart');
   if (!el) return;

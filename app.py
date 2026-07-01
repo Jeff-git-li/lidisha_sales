@@ -1,4 +1,5 @@
 import argparse
+import csv
 from datetime import datetime, timedelta
 import json
 import os
@@ -6,6 +7,7 @@ import re
 import sqlite3
 import time
 from functools import lru_cache
+from io import StringIO
 from pathlib import Path
 import threading
 
@@ -119,19 +121,62 @@ def clean_text_value(value) -> str:
     return text.strip()
 
 
+def series_or_default(df: pd.DataFrame, column: str, default_value="") -> pd.Series:
+    if column in df.columns:
+        return df[column]
+    return pd.Series([default_value] * len(df), index=df.index)
+
+
 def read_sales_csv_file(csv_path: str) -> pd.DataFrame:
     required_columns = {"款号", "零售数量"}
     attempts = []
+    raw_bytes = Path(csv_path).read_bytes()
     for encoding in ("utf-8-sig", "gb18030", "utf-8"):
         try:
-            df = pd.read_csv(csv_path, dtype=str, encoding=encoding, sep=None, engine="python")
+            decoded_text = raw_bytes.decode(encoding)
         except Exception as exc:
             attempts.append(f"{encoding}: {exc}")
             continue
+        sample = decoded_text[:4096]
+        tab_count = sample.count("\t")
+        comma_count = sample.count(",")
+        semicolon_count = sample.count(";")
+        if tab_count > 0 and tab_count >= comma_count and tab_count >= semicolon_count:
+            separator = "\t"
+        elif comma_count > 0 and comma_count >= semicolon_count:
+            separator = ","
+        elif semicolon_count > 0:
+            separator = ";"
+        else:
+            separator = ","
+
+        try:
+            if separator == "\t":
+                physical_rows = list(csv.reader(StringIO(decoded_text), delimiter=",", quotechar='"'))
+                normalized_rows = []
+                for row in physical_rows:
+                    if not row:
+                        continue
+                    first_cell = str(row[0]).strip()
+                    if not first_cell:
+                        continue
+                    normalized_rows.append([str(part).strip() for part in first_cell.split("\t")])
+                rows = normalized_rows
+                if not rows:
+                    raise ValueError("CSV为空")
+                header = [str(column).strip() for column in rows[0]]
+                data_rows = [row for row in rows[1:] if len(row) == len(header)]
+                df = pd.DataFrame(data_rows, columns=header, dtype=str)
+            else:
+                df = pd.read_csv(StringIO(decoded_text), dtype=str, sep=separator, engine="python")
+        except Exception as exc:
+            attempts.append(f"{encoding}/{separator}: {exc}")
+            continue
+
         df.columns = [str(c).strip() for c in df.columns]
         if required_columns.issubset(df.columns):
             return df
-        attempts.append(f"{encoding}: 缺少必要列 {sorted(required_columns - set(df.columns))}")
+        attempts.append(f"{encoding}/{separator}: 缺少必要列 {sorted(required_columns - set(df.columns))}")
     raise ValueError(f"无法读取CSV文件: {csv_path}; 尝试结果: {' | '.join(attempts)}")
 
 
@@ -205,9 +250,9 @@ def load_sales(excel_path: str) -> pd.DataFrame:
     df = df[df["商品代码"].notna() & df["区域名称"].notna() & df["数量"].notna()]
     df["商品代码"] = df["商品代码"].astype(str).str.strip()
     df = df[df["商品代码"].apply(include_product_code)]
-    df["颜色代码"] = df.get("颜色代码", "").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-    df["颜色名称"] = df.get("颜色名称", "").fillna("").astype(str).str.strip()
-    df["选定价"] = pd.to_numeric(df.get("选定价", 0), errors="coerce").fillna(0)
+    df["颜色代码"] = series_or_default(df, "颜色代码").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+    df["颜色名称"] = series_or_default(df, "颜色名称").fillna("").astype(str).str.strip()
+    df["选定价"] = pd.to_numeric(series_or_default(df, "选定价", 0), errors="coerce").fillna(0)
     df["数量"] = pd.to_numeric(df["数量"], errors="coerce").fillna(0)
     df["区域名称"] = df["区域名称"].astype(str).str.strip()
     if "商品名称" not in df.columns:
@@ -257,17 +302,16 @@ def load_sales_csv(csv_path: str) -> pd.DataFrame:
 
     df = df[df["商品代码"].apply(include_product_code)]
 
-    df["商店名称"] = df.get("商店名称", "").replace("", pd.NA)
-    if isinstance(df["商店名称"], pd.Series):
-        df["商店名称"] = df["商店名称"].fillna("未提供商店")
+    if "商店名称" in df.columns:
+        df["商店名称"] = df["商店名称"].fillna("").astype(str).str.strip()
+        df.loc[df["商店名称"].eq(""), "商店名称"] = "未提供商店"
     else:
         df["商店名称"] = "未提供商店"
 
     df["区域名称"] = "河南"
-    df["颜色名称"] = df.get("颜色名称", "未提供颜色")
-    if isinstance(df["颜色名称"], pd.Series):
+    if "颜色名称" in df.columns:
+        df["颜色名称"] = df["颜色名称"].fillna("").astype(str).str.strip()
         df.loc[df["颜色名称"].eq(""), "颜色名称"] = "未提供颜色"
-        df["颜色名称"] = df["颜色名称"].fillna("未提供颜色")
     else:
         df["颜色名称"] = "未提供颜色"
 
@@ -285,7 +329,7 @@ def load_sales_csv(csv_path: str) -> pd.DataFrame:
     ]
     df["颜色代码"] = pd.Series(df["颜色代码"], index=df.index).fillna("").astype(str).str.strip()
 
-    df["选定价"] = pd.to_numeric(df.get("选定价", 0), errors="coerce").fillna(0)
+    df["选定价"] = pd.to_numeric(series_or_default(df, "选定价", 0), errors="coerce").fillna(0)
     df["数量"] = pd.to_numeric(df["数量"], errors="coerce").fillna(0)
     if "销售额" in df.columns:
         df["销售额"] = pd.to_numeric(df["销售额"], errors="coerce").fillna(0)
@@ -328,9 +372,9 @@ def load_inventory(excel_path: str) -> pd.DataFrame:
         df.loc[df["商品名称"].eq(""), "商品名称"] = df.loc[df["商品名称"].eq(""), "商品代码"]
     else:
         df["商品名称"] = df["商品代码"]
-    df["颜色代码"] = df.get("颜色代码", "").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-    df["颜色名称"] = df.get("颜色名称", "").fillna("").astype(str).str.strip()
-    df["选定价"] = pd.to_numeric(df.get("选定价", 0), errors="coerce").fillna(0)
+    df["颜色代码"] = series_or_default(df, "颜色代码").astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+    df["颜色名称"] = series_or_default(df, "颜色名称").fillna("").astype(str).str.strip()
+    df["选定价"] = pd.to_numeric(series_or_default(df, "选定价", 0), errors="coerce").fillna(0)
     df["数量"] = pd.to_numeric(df["数量"], errors="coerce").fillna(0)
     df = enrich_season_columns(df)
     df["品类"] = df["商品代码"].apply(infer_category)
@@ -1127,8 +1171,11 @@ def product_image(code, color):
 
 @app.route("/api/reload")
 def api_reload():
-    result = reload_dashboard_data(trigger="manual")
-    return jsonify({"ok": True, **result})
+    try:
+        result = reload_dashboard_data(trigger="manual")
+        return jsonify({"ok": True, **result})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 def latest_excel(input_dir: str) -> str:
