@@ -14,9 +14,29 @@ import threading
 import pandas as pd
 from flask import Flask, jsonify, render_template, request, send_file, abort
 
-app = Flask(__name__)
+from config import (
+    AUTO_REFRESH_HOUR,
+    AUTO_REFRESH_MINUTE,
+    DEFAULT_HOST,
+    DEFAULT_IMAGE_ROOT,
+    DEFAULT_INPUT_DIR,
+    DEFAULT_PORT,
+    DEFAULT_SEASON_CODE,
+    DEFAULT_TOP_N,
+    DEFAULT_YEAR_PREFIX,
+    IMAGE_INDEX_CACHE_PATH,
+    INVENTORY_FILE_GLOB,
+    SALES_CSV_GLOB,
+    SALES_FILE_GLOB,
+    build_app_config,
+)
+from database import get_db_connection
+from logging_config import configure_logging, get_logger
 
-DEFAULT_IMAGE_ROOT = r"R:\商品部"
+app = Flask(__name__)
+configure_logging()
+logger = get_logger(__name__)
+
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 REGION_GROUPS = {
     "全国": [],
@@ -58,8 +78,6 @@ SEASON_CODE_MAP = {
     "4": (4, "冬季"),
 }
 EXCLUDED_CATEGORY_CODES = {"P", "S"}
-SALES_FILE_GLOB = "零售销售分析*.xlsx"
-INVENTORY_FILE_GLOB = "进货数据*.xlsx"
 
 DATA = None
 INVENTORY_DATA = None
@@ -68,20 +86,8 @@ IMAGE_INDEX_READY = False
 IMAGE_INDEX_THREAD = None
 AUTO_REFRESH_THREAD = None
 DATA_REFRESH_LOCK = threading.Lock()
-IMAGE_INDEX_CACHE_PATH = Path(__file__).with_name("image_index.json")
-DB_PATH = Path(__file__).with_name("retail_dashboard.db")
 EXPORT_DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})")
-APP_CONFIG = {
-    "excel_path": None,
-    "input_dir": "exports",
-    "image_root": DEFAULT_IMAGE_ROOT,
-    "top_n": 20,
-}
-DEFAULT_YEAR_PREFIX = "KU"
-DEFAULT_SEASON_CODE = "2"
-SALES_CSV_GLOB = "零售销售分析*.csv"
-AUTO_REFRESH_HOUR = 7
-AUTO_REFRESH_MINUTE = 10
+APP_CONFIG = build_app_config()
 
 
 def find_header_row(excel_path: str, sheet_name=0) -> int:
@@ -484,12 +490,6 @@ def build_image_index(root: str) -> dict:
     return index
 
 
-def get_db_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def init_db(conn: sqlite3.Connection):
     conn.executescript(
         """
@@ -782,9 +782,9 @@ def auto_refresh_loop():
         time.sleep(wait_seconds)
         try:
             result = reload_dashboard_data(trigger="scheduled")
-            print(f"[{result['loaded_at']}] 每日自动刷新完成：{result['rows']:,}行")
+            logger.info("[%s] 每日自动刷新完成：%s行", result["loaded_at"], f"{result['rows']:,}")
         except Exception as exc:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 每日自动刷新失败：{exc}")
+            logger.exception("[%s] 每日自动刷新失败：%s", time.strftime("%Y-%m-%d %H:%M:%S"), exc)
 
 
 def start_auto_refresh_scheduler():
@@ -794,7 +794,7 @@ def start_auto_refresh_scheduler():
     AUTO_REFRESH_THREAD = threading.Thread(target=auto_refresh_loop, name="daily-auto-refresh", daemon=True)
     AUTO_REFRESH_THREAD.start()
     next_run = next_auto_refresh_time().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"已启用每日自动刷新：每天 {AUTO_REFRESH_HOUR:02d}:{AUTO_REFRESH_MINUTE:02d}，下次执行 {next_run}")
+    logger.info("已启用每日自动刷新：每天 %02d:%02d，下次执行 %s", AUTO_REFRESH_HOUR, AUTO_REFRESH_MINUTE, next_run)
 
 
 @lru_cache(maxsize=8192)
@@ -1175,6 +1175,7 @@ def api_reload():
         result = reload_dashboard_data(trigger="manual")
         return jsonify({"ok": True, **result})
     except Exception as exc:
+        logger.exception("手动刷新失败：%s", exc)
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
@@ -1185,11 +1186,11 @@ def latest_excel(input_dir: str) -> str:
 def parse_args():
     parser = argparse.ArgumentParser(description="BSERP零售Top20 Flask Dashboard")
     parser.add_argument("--input", default=None, help="RPA导出的零售销售分析Excel路径")
-    parser.add_argument("--input-dir", default="exports", help="如果不传--input，则自动读取此文件夹最新xlsx")
+    parser.add_argument("--input-dir", default=DEFAULT_INPUT_DIR, help="如果不传--input，则自动读取此文件夹最新xlsx")
     parser.add_argument("--image-root", default=DEFAULT_IMAGE_ROOT, help="商品图片根目录，默认 R:\\商品部")
-    parser.add_argument("--host", default="0.0.0.0", help="默认0.0.0.0，局域网其他电脑可访问")
-    parser.add_argument("--port", default=5000, type=int, help="默认5000")
-    parser.add_argument("--top-n", default=20, type=int)
+    parser.add_argument("--host", default=DEFAULT_HOST, help="默认0.0.0.0，局域网其他电脑可访问")
+    parser.add_argument("--port", default=DEFAULT_PORT, type=int, help="默认5000")
+    parser.add_argument("--top-n", default=DEFAULT_TOP_N, type=int)
     return parser.parse_args()
 
 
@@ -1199,8 +1200,8 @@ if __name__ == "__main__":
     APP_CONFIG.update({"excel_path": excel_path if args.input else None, "inventory_path": None, "input_dir": args.input_dir, "image_root": args.image_root, "top_n": args.top_n})
     initial_result = reload_dashboard_data(trigger="startup")
     start_auto_refresh_scheduler()
-    print(f"已加载Excel: {excel_path}")
-    print(f"销售记录: {initial_result['rows']:,} 行；图片索引: {initial_result['images']:,} 张；图片目录: {args.image_root}")
-    print(f"访问地址: http://127.0.0.1:{args.port}")
-    print(f"局域网访问: http://本机IP:{args.port}")
+    logger.info("已加载Excel: %s", excel_path)
+    logger.info("销售记录: %s 行；图片索引: %s 张；图片目录: %s", f"{initial_result['rows']:,}", f"{initial_result['images']:,}", args.image_root)
+    logger.info("访问地址: http://127.0.0.1:%s", args.port)
+    logger.info("局域网访问: http://本机IP:%s", args.port)
     app.run(host=args.host, port=args.port, debug=False)
