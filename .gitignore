@@ -5,3 +5,13 @@ __pycache__/
 *.csv
 .pytest_cache/
 image_index.json
+*.db
+*.sqlite
+*.sqlite3
+*_server*.txt
+*_validate*.db
+*_validate*.txt
+logs/
+exports/
+**/__pycache__/
+.env
