@@ -67,6 +67,17 @@ CODE_CATEGORY_MAP = {
     "Y": "羽绒",
     "Z": "套装",
 }
+WAVE_LABEL_MAP = {
+    "1": "第一波",
+    "2": "第二波",
+    "3": "第三波",
+    "4": "第四波",
+    "5": "第五波",
+    "6": "第六波",
+    "7": "第七波",
+    "8": "第八波",
+    "9": "第九波",
+}
 YEAR_PREFIX_MAP = {
     "KP": 2025,
     "KU": 2026,
@@ -208,6 +219,13 @@ def infer_season(code: str) -> tuple[str, int | None, str, str]:
     return year_prefix, None, code[2] if len(code) >= 3 else "", "未识别季节"
 
 
+def infer_wave(code: str) -> str:
+    code = str(code).strip().upper()
+    if len(code) < 4:
+        return "未知波段"
+    return WAVE_LABEL_MAP.get(code[3], "未知波段")
+
+
 def enrich_season_columns(df: pd.DataFrame) -> pd.DataFrame:
     season_info = df["商品代码"].apply(infer_season)
     df["年份代号"] = season_info.apply(lambda item: item[0])
@@ -215,6 +233,7 @@ def enrich_season_columns(df: pd.DataFrame) -> pd.DataFrame:
     df["季节序"] = season_info.apply(lambda item: item[1])
     df["季节代号"] = season_info.apply(lambda item: item[2])
     df["季节"] = season_info.apply(lambda item: item[3])
+    df["波段"] = df["商品代码"].apply(infer_wave)
     return df
 
 
@@ -245,6 +264,20 @@ def season_option_rows() -> list[dict]:
         {"value": code, "label": f"{code}({name})"}
         for code, (_, name) in sorted(SEASON_CODE_MAP.items(), key=lambda item: int(item[0]))
     ]
+
+
+def wave_sort_key(label: str) -> tuple[int, str]:
+    for digit, wave_label in WAVE_LABEL_MAP.items():
+        if label == wave_label:
+            return int(digit), label
+    return (99, str(label))
+
+
+def wave_option_rows(df: pd.DataFrame) -> list[dict]:
+    if "波段" not in df.columns:
+        return []
+    values = sorted(df["波段"].dropna().astype(str).unique().tolist(), key=wave_sort_key)
+    return [{"value": value, "label": value} for value in values if value]
 
 
 def load_sales(excel_path: str) -> pd.DataFrame:
@@ -871,11 +904,13 @@ def apply_inventory_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
     if filtered.empty:
         return filtered
     if filters.get("category"):
-        filtered = filtered[filtered["品类"].eq(filters["category"])]
+        filtered = filtered[filtered["品类"].isin(filters["category"])]
     if filters.get("year_prefix"):
-        filtered = filtered[filtered["年份代号"].eq(filters["year_prefix"])]
+        filtered = filtered[filtered["年份代号"].isin(filters["year_prefix"])]
     if filters.get("season_code"):
-        filtered = filtered[filtered["季节代号"].eq(filters["season_code"])]
+        filtered = filtered[filtered["季节代号"].isin(filters["season_code"])]
+    if filters.get("wave"):
+        filtered = filtered[filtered["波段"].isin(filters["wave"])]
     return filtered
 
 
@@ -946,6 +981,33 @@ def resolve_date_range(df: pd.DataFrame, request_args) -> tuple[pd.Timestamp | N
     return start, max_date.normalize(), preset
 
 
+def request_multi_values(request_args, key: str) -> list[str]:
+    values = request_args.getlist(key) if hasattr(request_args, "getlist") else []
+    if not values:
+        single = request_args.get(key)
+        values = [single] if single else []
+    normalized = []
+    for value in values:
+        text = str(value).strip()
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def region_filter_values(region_values: list[str]) -> list[str] | None:
+    selected = [value for value in region_values if value and value != "全国"]
+    if not selected:
+        return None
+    expanded = []
+    for value in selected:
+        members = REGION_GROUPS.get(value)
+        if members:
+            expanded.extend(members)
+        else:
+            expanded.append(value)
+    return list(dict.fromkeys(expanded))
+
+
 def apply_filter_values(df: pd.DataFrame, filters: dict, include_region=True) -> pd.DataFrame:
     filtered = df.copy()
     start_date = pd.to_datetime(filters.get("start_date"), errors="coerce")
@@ -953,40 +1015,46 @@ def apply_filter_values(df: pd.DataFrame, filters: dict, include_region=True) ->
     if not pd.isna(start_date) and not pd.isna(end_date):
         filtered = filtered[(filtered["日期"] >= start_date.normalize()) & (filtered["日期"] <= end_date.normalize())]
     if filters.get("category"):
-        filtered = filtered[filtered["品类"].eq(filters["category"])]
+        filtered = filtered[filtered["品类"].isin(filters["category"])]
     if filters.get("store"):
-        filtered = filtered[filtered["商店名称"].eq(filters["store"])]
+        filtered = filtered[filtered["商店名称"].isin(filters["store"])]
     if filters.get("year_prefix"):
-        filtered = filtered[filtered["年份代号"].eq(filters["year_prefix"])]
+        filtered = filtered[filtered["年份代号"].isin(filters["year_prefix"])]
     if filters.get("season_code"):
-        filtered = filtered[filtered["季节代号"].eq(filters["season_code"])]
-    if include_region and filters.get("region") and filters["region"] != "全国":
-        if filters["region"] in REGION_GROUPS:
-            filtered = filtered[filtered["区域名称"].isin(REGION_GROUPS[filters["region"]])]
-        else:
-            filtered = filtered[filtered["区域名称"].eq(filters["region"])]
+        filtered = filtered[filtered["季节代号"].isin(filters["season_code"])]
+    if filters.get("wave"):
+        filtered = filtered[filtered["波段"].isin(filters["wave"])]
+    if include_region:
+        regions = region_filter_values(filters.get("region", []))
+        if regions:
+            filtered = filtered[filtered["区域名称"].isin(regions)]
     return filtered
 
 
 def apply_filters(df: pd.DataFrame, request_args) -> tuple[pd.DataFrame, dict]:
-    category = request_args.get("category") or None
-    region = request_args.get("region") or None
-    store = request_args.get("store") or None
-    year_prefix = request_args.get("year_prefix") or None
-    season_code = request_args.get("season_code") or None
+    category = request_multi_values(request_args, "category")
+    region = request_multi_values(request_args, "region")
+    store = request_multi_values(request_args, "store")
+    year_prefix = request_multi_values(request_args, "year_prefix")
+    season_code = request_multi_values(request_args, "season_code")
+    wave = request_multi_values(request_args, "wave")
     start_date, end_date, date_preset = resolve_date_range(df, request_args)
     available_years = set(df["年份代号"].dropna().astype(str).tolist()) if "年份代号" in df.columns else set()
     if not year_prefix:
-        year_prefix = DEFAULT_YEAR_PREFIX if DEFAULT_YEAR_PREFIX in available_years else next(iter(sorted(available_years)), "")
+        default_year = DEFAULT_YEAR_PREFIX if DEFAULT_YEAR_PREFIX in available_years else next(iter(sorted(available_years)), "")
+        year_prefix = [default_year] if default_year else []
     if not season_code:
-        season_code = DEFAULT_SEASON_CODE
+        season_code = [DEFAULT_SEASON_CODE]
+    if not region:
+        region = ["全国"]
 
     filters = {
-        "region": region or "全国",
-        "category": category or "",
-        "store": store or "",
-        "year_prefix": year_prefix or "",
-        "season_code": season_code or "",
+        "region": region,
+        "category": category,
+        "store": store,
+        "year_prefix": year_prefix,
+        "season_code": season_code,
+        "wave": wave,
         "date_preset": date_preset,
         "start_date": start_date.strftime("%Y-%m-%d") if start_date is not None else "",
         "end_date": end_date.strftime("%Y-%m-%d") if end_date is not None else "",
@@ -1042,6 +1110,7 @@ def index():
     stores = sorted(df["商店名称"].dropna().unique().tolist()) if "商店名称" in df.columns else []
     year_options = year_option_rows(df)
     season_options = season_option_rows()
+    wave_options = wave_option_rows(df)
     date_min = df["日期"].min().strftime("%Y-%m-%d") if not df.empty and "日期" in df.columns else ""
     date_max = df["日期"].max().strftime("%Y-%m-%d") if not df.empty and "日期" in df.columns else ""
     return render_template(
@@ -1052,6 +1121,7 @@ def index():
         stores=stores,
         year_options=year_options,
         season_options=season_options,
+        wave_options=wave_options,
         default_year_prefix=DEFAULT_YEAR_PREFIX,
         default_season_code=DEFAULT_SEASON_CODE,
         date_min=date_min,
@@ -1134,6 +1204,7 @@ def api_dashboard():
             "default_season_code": DEFAULT_SEASON_CODE,
             "year_options": year_option_rows(df),
             "season_options": season_option_rows(),
+            "wave_options": wave_option_rows(df),
         },
         "image_index_ready": IMAGE_INDEX_READY,
     })

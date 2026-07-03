@@ -29,7 +29,7 @@
       <input id="endDate" type="date" min="{{ date_min }}" max="{{ date_max }}" />
     </label>
     <label>区域
-      <select id="region">
+      <select id="region" multiple>
         <option value="全国">全国</option>
         <option value="北区">北区（华北/东北/西北）</option>
         <option value="中区">中区（华中/西南/华东/河南）</option>
@@ -38,24 +38,27 @@
       </select>
     </label>
     <label>品类
-      <select id="category">
-        <option value="">全部品类</option>
+      <select id="category" multiple>
         {% for c in categories %}<option value="{{c}}">{{c}}</option>{% endfor %}
       </select>
     </label>
     <label>年份
-      <select id="yearPrefix">
+      <select id="yearPrefix" multiple>
         {% for y in year_options %}<option value="{{y.value}}" {% if y.value == default_year_prefix %}selected{% endif %}>{{y.label}}</option>{% endfor %}
       </select>
     </label>
     <label>季节
-      <select id="seasonCode">
+      <select id="seasonCode" multiple>
         {% for s in season_options %}<option value="{{s.value}}" {% if s.value == default_season_code %}selected{% endif %}>{{s.label}}</option>{% endfor %}
       </select>
     </label>
+    <label>波段
+      <select id="wave" multiple>
+        {% for w in wave_options %}<option value="{{w.value}}">{{w.label}}</option>{% endfor %}
+      </select>
+    </label>
     <label>商店
-      <select id="store">
-        <option value="">全部商店</option>
+      <select id="store" multiple>
         {% for s in stores %}<option value="{{s}}">{{s}}</option>{% endfor %}
       </select>
     </label>
