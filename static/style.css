@@ -17,7 +17,8 @@
 .mini-img .thumb{width:34px;height:34px}
 .mini-row{grid-template-columns:42px 24px 1fr 44px}
 .mini-img{display:flex;align-items:center;justify-content:center}
-.matrix-image-cell .thumb{width:72px;height:72px}
+#matrixTable td.matrix-image-cell{padding:14px 12px;vertical-align:middle}
+#matrixTable td.matrix-image-cell .thumb{width:96px;height:96px}
 .mini-img-lg .thumb{width:72px;height:72px}
 .mini-row.with-large-image{grid-template-columns:80px 24px 1fr 44px}
 

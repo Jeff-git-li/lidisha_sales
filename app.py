@@ -6,6 +6,7 @@ import os
 import re
 import sqlite3
 import time
+import sys
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
@@ -1266,13 +1267,22 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    excel_path = args.input or latest_excel(args.input_dir)
-    APP_CONFIG.update({"excel_path": excel_path if args.input else None, "inventory_path": None, "input_dir": args.input_dir, "image_root": args.image_root, "top_n": args.top_n})
-    initial_result = reload_dashboard_data(trigger="startup")
-    start_auto_refresh_scheduler()
-    logger.info("已加载Excel: %s", excel_path)
-    logger.info("销售记录: %s 行；图片索引: %s 张；图片目录: %s", f"{initial_result['rows']:,}", f"{initial_result['images']:,}", args.image_root)
-    logger.info("访问地址: http://127.0.0.1:%s", args.port)
-    logger.info("局域网访问: http://本机IP:%s", args.port)
-    app.run(host=args.host, port=args.port, debug=False)
+    if len(sys.argv) == 1:
+        APP_CONFIG.update({"excel_path": None, "inventory_path": None, "input_dir": DEFAULT_INPUT_DIR, "image_root": DEFAULT_IMAGE_ROOT, "top_n": DEFAULT_TOP_N})
+        initial_result = reload_dashboard_data(trigger="startup")
+        start_auto_refresh_scheduler()
+        logger.info("开发模式启动")
+        logger.info("销售记录: %s 行；图片索引: %s 张；图片目录: %s", f"{initial_result['rows']:,}", f"{initial_result['images']:,}", DEFAULT_IMAGE_ROOT)
+        logger.info("访问地址: http://127.0.0.1:5000")
+        app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=True)
+    else:
+        args = parse_args()
+        excel_path = args.input or latest_excel(args.input_dir)
+        APP_CONFIG.update({"excel_path": excel_path if args.input else None, "inventory_path": None, "input_dir": args.input_dir, "image_root": args.image_root, "top_n": args.top_n})
+        initial_result = reload_dashboard_data(trigger="startup")
+        start_auto_refresh_scheduler()
+        logger.info("已加载Excel: %s", excel_path)
+        logger.info("销售记录: %s 行；图片索引: %s 张；图片目录: %s", f"{initial_result['rows']:,}", f"{initial_result['images']:,}", args.image_root)
+        logger.info("访问地址: http://127.0.0.1:%s", args.port)
+        logger.info("局域网访问: http://本机IP:%s", args.port)
+        app.run(host=args.host, port=args.port, debug=False)
