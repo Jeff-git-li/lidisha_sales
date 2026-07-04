@@ -6,3 +6,4 @@ from .retail_queries import (
     get_top_product_colors,
     get_top_products,
 )
+from .dashboard import get_dashboard_kpis

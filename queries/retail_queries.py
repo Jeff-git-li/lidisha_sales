@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Any
 
 from database import get_db_connection
+from queries.filters import build_dimension_joins, build_where_clause
 
 
-JOINED_CTE = """
+JOINED_CTE = f"""
 WITH joined AS (
     SELECT
         f.id,
@@ -14,6 +14,7 @@ WITH joined AS (
         f.date_key,
         f.product_code,
         f.store_code,
+        s.store_name,
         f.color_name,
         f.size_name,
         f.qty,
@@ -27,6 +28,8 @@ WITH joined AS (
         f.imported_at,
         p.product_name,
         p.year_code AS year,
+        p.year_code AS year_code,
+        p.season_code,
         p.season_name,
         p.launch_wave_name AS wave,
         p.category_name,
@@ -34,77 +37,21 @@ WITH joined AS (
         p.designer_name,
         s.region_name,
         s.channel_code,
+        s.store_type_name,
         c.year AS calendar_year,
         c.month AS calendar_month,
-        c.day AS calendar_day
+        c.day AS calendar_day,
+        COALESCE(
+            NULLIF(f.amount, 0),
+            CASE
+                WHEN f.unit_price IS NOT NULL AND f.unit_price != 0 THEN f.qty * f.unit_price
+                ELSE 0
+            END
+        ) AS effective_amount
     FROM fact_retail_sales f
-    LEFT JOIN dim_product p ON f.product_code = p.product_code
-    LEFT JOIN dim_store s ON f.store_code = s.store_code
-    LEFT JOIN dim_calendar c ON f.date_key = c.date_key
+    {build_dimension_joins()}
 )
 """
-
-FILTER_COLUMN_MAP = {
-    "region_name": "region_name",
-    "channel_code": "channel_code",
-    "category_name": "category_name",
-    "big_category_name": "big_category_name",
-    "year": "year",
-    "season_name": "season_name",
-    "wave": "wave",
-    "designer_name": "designer_name",
-    "product_code": "product_code",
-    "store_code": "store_code",
-}
-
-
-def _normalize_values(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, (str, bytes)):
-        text = str(value).strip()
-        return [text] if text else []
-    if isinstance(value, Iterable):
-        normalized = []
-        for item in value:
-            text = str(item).strip()
-            if text and text not in normalized:
-                normalized.append(text)
-        return normalized
-    text = str(value).strip()
-    return [text] if text else []
-
-
-def _build_filters(filters: dict[str, Any] | None, core_only: bool) -> tuple[str, list[Any]]:
-    filters = filters or {}
-    clauses: list[str] = []
-    params: list[Any] = []
-
-    start_date = _normalize_values(filters.get("start_date"))
-    end_date = _normalize_values(filters.get("end_date"))
-    if start_date:
-        clauses.append("sale_date >= ?")
-        params.append(start_date[0])
-    if end_date:
-        clauses.append("sale_date <= ?")
-        params.append(end_date[0])
-
-    for key, column in FILTER_COLUMN_MAP.items():
-        values = _normalize_values(filters.get(key))
-        if not values:
-            continue
-        placeholders = ", ".join(["?"] * len(values))
-        clauses.append(f"COALESCE(NULLIF(TRIM({column}), ''), '') IN ({placeholders})")
-        params.extend(values)
-
-    if core_only:
-        clauses.append("COALESCE(NULLIF(TRIM(year), ''), '') <> ''")
-        clauses.append("COALESCE(NULLIF(TRIM(season_name), ''), '') <> ''")
-
-    where_sql = ""
-    if clauses:
-        where_sql = " WHERE " + " AND ".join(clauses)
-    return where_sql, params
 
 
 def _query_all(sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> list[dict[str, Any]]:
@@ -119,13 +66,13 @@ def _query_one(sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> d
 
 
 def get_sales_summary(filters: dict[str, Any] | None = None, core_only: bool = True) -> dict[str, Any]:
-    where_sql, params = _build_filters(filters, core_only)
+    where_sql, params = build_where_clause(filters, core_only)
     sql = f"""
     {JOINED_CTE}
     SELECT
         COUNT(*) AS rows,
         COALESCE(SUM(qty), 0) AS total_qty,
-        COALESCE(SUM(amount), 0) AS total_amount,
+        COALESCE(SUM(effective_amount), 0) AS total_amount,
         COUNT(DISTINCT product_code) AS product_count,
         COUNT(DISTINCT store_code) AS store_count,
         COUNT(DISTINCT region_name) AS region_count,
@@ -139,7 +86,7 @@ def get_sales_summary(filters: dict[str, Any] | None = None, core_only: bool = T
 
 
 def get_top_products(filters: dict[str, Any] | None = None, top_n: int = 20, core_only: bool = True) -> list[dict[str, Any]]:
-    where_sql, params = _build_filters(filters, core_only)
+    where_sql, params = build_where_clause(filters, core_only)
     sql = f"""
     {JOINED_CTE}
     SELECT
@@ -152,7 +99,7 @@ def get_top_products(filters: dict[str, Any] | None = None, top_n: int = 20, cor
         MAX(big_category_name) AS big_category_name,
         MAX(designer_name) AS designer_name,
         COALESCE(SUM(qty), 0) AS total_qty,
-        COALESCE(SUM(amount), 0) AS total_amount,
+        COALESCE(SUM(effective_amount), 0) AS total_amount,
         COUNT(*) AS sales_rows
     FROM joined
     {where_sql}
@@ -167,7 +114,7 @@ def get_top_products(filters: dict[str, Any] | None = None, top_n: int = 20, cor
 
 
 def get_top_product_colors(filters: dict[str, Any] | None = None, top_n: int = 20, core_only: bool = True) -> list[dict[str, Any]]:
-    where_sql, params = _build_filters(filters, core_only)
+    where_sql, params = build_where_clause(filters, core_only)
     sql = f"""
     {JOINED_CTE}
     SELECT
@@ -181,7 +128,7 @@ def get_top_product_colors(filters: dict[str, Any] | None = None, top_n: int = 2
         MAX(big_category_name) AS big_category_name,
         MAX(designer_name) AS designer_name,
         COALESCE(SUM(qty), 0) AS total_qty,
-        COALESCE(SUM(amount), 0) AS total_amount,
+        COALESCE(SUM(effective_amount), 0) AS total_amount,
         COUNT(*) AS sales_rows
     FROM joined
     {where_sql}
@@ -196,13 +143,13 @@ def get_top_product_colors(filters: dict[str, Any] | None = None, top_n: int = 2
 
 
 def get_region_ranking(filters: dict[str, Any] | None = None, top_n: int = 20, core_only: bool = True) -> list[dict[str, Any]]:
-    where_sql, params = _build_filters(filters, core_only)
+    where_sql, params = build_where_clause(filters, core_only)
     sql = f"""
     {JOINED_CTE}
     SELECT
         COALESCE(region_name, '未分区') AS region_name,
         COALESCE(SUM(qty), 0) AS total_qty,
-        COALESCE(SUM(amount), 0) AS total_amount,
+        COALESCE(SUM(effective_amount), 0) AS total_amount,
         COUNT(DISTINCT product_code) AS product_count,
         COUNT(DISTINCT store_code) AS store_count
     FROM joined
@@ -218,14 +165,14 @@ def get_region_ranking(filters: dict[str, Any] | None = None, top_n: int = 20, c
 
 
 def get_category_ranking(filters: dict[str, Any] | None = None, top_n: int = 20, core_only: bool = True) -> list[dict[str, Any]]:
-    where_sql, params = _build_filters(filters, core_only)
+    where_sql, params = build_where_clause(filters, core_only)
     sql = f"""
     {JOINED_CTE}
     SELECT
         COALESCE(category_name, '未分类') AS category_name,
         COALESCE(big_category_name, '未大类') AS big_category_name,
         COALESCE(SUM(qty), 0) AS total_qty,
-        COALESCE(SUM(amount), 0) AS total_amount,
+        COALESCE(SUM(effective_amount), 0) AS total_amount,
         COUNT(DISTINCT product_code) AS product_count
     FROM joined
     {where_sql}
@@ -240,7 +187,7 @@ def get_category_ranking(filters: dict[str, Any] | None = None, top_n: int = 20,
 
 
 def get_hot_matrix(filters: dict[str, Any] | None = None, top_n: int = 20, core_only: bool = True) -> list[dict[str, Any]]:
-    where_sql, params = _build_filters(filters, core_only)
+    where_sql, params = build_where_clause(filters, core_only)
     sql = f"""
     {JOINED_CTE}
     SELECT
@@ -252,7 +199,7 @@ def get_hot_matrix(filters: dict[str, Any] | None = None, top_n: int = 20, core_
         MAX(season_name) AS season_name,
         MAX(wave) AS wave,
         COALESCE(SUM(qty), 0) AS total_qty,
-        COALESCE(SUM(amount), 0) AS total_amount
+        COALESCE(SUM(effective_amount), 0) AS total_amount
     FROM joined
     {where_sql}
     GROUP BY product_code
@@ -266,7 +213,7 @@ def get_hot_matrix(filters: dict[str, Any] | None = None, top_n: int = 20, core_
     product_codes = [row["product_code"] for row in top_products]
     matrix_filters = dict(filters or {})
     matrix_filters["product_code"] = product_codes
-    matrix_where_sql, matrix_params = _build_filters(matrix_filters, core_only)
+    matrix_where_sql, matrix_params = build_where_clause(matrix_filters, core_only)
     matrix_sql = f"""
     {JOINED_CTE}
     SELECT
@@ -274,7 +221,7 @@ def get_hot_matrix(filters: dict[str, Any] | None = None, top_n: int = 20, core_
         MAX(product_name) AS product_name,
         COALESCE(region_name, '未分区') AS region_name,
         COALESCE(SUM(qty), 0) AS total_qty,
-        COALESCE(SUM(amount), 0) AS total_amount
+        COALESCE(SUM(effective_amount), 0) AS total_amount
     FROM joined
     {matrix_where_sql}
     GROUP BY product_code, COALESCE(region_name, '未分区')

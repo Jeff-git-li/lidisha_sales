@@ -33,6 +33,7 @@ from config import (
 )
 from database import get_db_connection
 from logging_config import configure_logging, get_logger
+from queries.dashboard import get_dashboard_kpis
 
 app = Flask(__name__)
 configure_logging()
@@ -1100,7 +1101,7 @@ def attach_image_urls_by_code(rows: list[dict], cover_color_map: dict) -> list[d
 @app.route("/")
 def index():
     df = DATA
-    summary = sales_summary(df)
+    summary = get_dashboard_kpis(None)
     grouped_regions = {member for members in REGION_GROUPS.values() for member in members}
     regions = [
         region
@@ -1187,7 +1188,7 @@ def api_dashboard():
     }
     matrix = attach_image_urls_by_code(make_matrix(filtered, top_n=30), cover_color_map)
     return jsonify({
-        "summary": sales_summary(filtered),
+        "summary": get_dashboard_kpis(filters),
         "global_top": attach_image_urls(agg_rank(filtered, ["商品代码", "商品名称", "品类", "选定价"], top_n), cover_color_map),
         "color_top": agg_rank(filtered, ["商品代码", "颜色代码", "颜色名称", "商品名称", "品类", "选定价"], top_n),
         "slow_moving": slow_moving,

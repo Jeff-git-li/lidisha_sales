@@ -880,7 +880,7 @@ def write_import_log(conn, entry: dict[str, object]) -> int:
 
 
 def _find_sales_header_row(ws) -> int:
-    normalized_required = {value.strip() for value in SALES_REQUIRED_COLUMNS}
+    normalized_required = {"日期", "商品代码", "数量"}
     for row_index, row in enumerate(ws.iter_rows(values_only=True), start=1):
         values = [_text(value) for value in row]
         if not any(values):
@@ -911,6 +911,20 @@ def _load_sales_rows(path: str | Path):
             continue
         record = {headers[i]: values[i] if i < len(values) else "" for i in range(len(headers))}
         yield header_row, row_index, record
+
+
+def _store_lookups(conn) -> tuple[dict[str, str], dict[str, str]]:
+    rows = conn.execute("SELECT store_code, store_name FROM dim_store").fetchall()
+    name_to_code: dict[str, str] = {}
+    code_to_name: dict[str, str] = {}
+    for row in rows:
+        store_code = _text(row[0])
+        store_name = _text(row[1])
+        if store_name and store_code and store_name not in name_to_code:
+            name_to_code[store_name] = store_code
+        if store_code and store_name and store_code not in code_to_name:
+            code_to_name[store_code] = store_name
+    return name_to_code, code_to_name
 
 
 def _next_batch_id(conn, run_date: str) -> str:
@@ -944,17 +958,25 @@ def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[s
 
     product_codes = {row[0] for row in conn.execute("SELECT product_code FROM dim_product").fetchall()}
     store_codes = {row[0] for row in conn.execute("SELECT store_code FROM dim_store").fetchall()}
+    store_name_to_code, store_code_to_name = _store_lookups(conn)
 
     for header_row, excel_row, record in _load_sales_rows(path):
         rows_read += 1
         sale_date = _date(record.get("日期"))
         product_code = _text(record.get("商品代码"))
         store_code = _text(record.get("商店代码"))
+        store_name = _text(record.get("商店名称"))
+        if not store_code and store_name:
+            store_code = store_name_to_code.get(store_name, store_name)
+        if not store_name and store_code:
+            store_name = store_code_to_name.get(store_code, "")
         color_name = _text(record.get("颜色名称"))
         size_name = _text(record.get("尺码名称"))
         qty = _float(record.get("数量")) or 0.0
         amount = _float(record.get("金额"))
         unit_price = _float(record.get("成交价"))
+        if unit_price is None:
+            unit_price = _float(record.get("选定价"))
         discount_rate = _float(record.get("折扣"))
 
         if product_code and product_code not in product_codes:
@@ -968,7 +990,7 @@ def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[s
             continue
 
         date_key = sale_date.replace("-", "")
-        row_hash = _safe_hash([sale_date, product_code, store_code, color_name, size_name, str(qty), "" if amount is None else str(amount), source_path])
+        row_hash = _safe_hash([sale_date, product_code, store_code, store_name, color_name, size_name, str(qty), "" if amount is None else str(amount), source_path])
         batch_rows.append((
             sale_date,
             date_key,
