@@ -1,3 +1,7 @@
+Retail Intelligence Platform is a data platform designed for fashion retail brands.
+
+It automatically imports ERP exports, builds a normalized data warehouse, provides reusable semantic queries, and powers dashboards, AI analytics, and future APIs.
+
 零售销售Top20 Flask Dashboard 使用说明
 
 1. 安装Python 3.10或以上。
