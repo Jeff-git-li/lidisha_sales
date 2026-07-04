@@ -1033,6 +1033,28 @@ def apply_filter_values(df: pd.DataFrame, filters: dict, include_region=True) ->
     return filtered
 
 
+def translate_filters_for_sql(filters: dict) -> dict:
+    translated = {
+        "start_date": filters.get("start_date", ""),
+        "end_date": filters.get("end_date", ""),
+        "source_file": filters.get("source_file", []),
+        "wave": filters.get("wave", []),
+    }
+    if filters.get("region"):
+        expanded_regions = region_filter_values(filters.get("region", []))
+        if expanded_regions:
+            translated["region_name"] = expanded_regions
+    if filters.get("category"):
+        translated["big_category_name"] = filters.get("category", [])
+    if filters.get("store"):
+        translated["store_name"] = filters.get("store", [])
+    if filters.get("year_prefix"):
+        translated["year"] = [str(YEAR_PREFIX_MAP.get(prefix, "")) for prefix in filters.get("year_prefix", []) if YEAR_PREFIX_MAP.get(prefix)]
+    if filters.get("season_code"):
+        translated["season_name"] = [SEASON_CODE_MAP.get(code, (None, ""))[1][:1] for code in filters.get("season_code", []) if SEASON_CODE_MAP.get(code)]
+    return {key: value for key, value in translated.items() if value}
+
+
 def apply_filters(df: pd.DataFrame, request_args) -> tuple[pd.DataFrame, dict]:
     category = request_multi_values(request_args, "category")
     region = request_multi_values(request_args, "region")
@@ -1188,7 +1210,7 @@ def api_dashboard():
     }
     matrix = attach_image_urls_by_code(make_matrix(filtered, top_n=30), cover_color_map)
     return jsonify({
-        "summary": get_dashboard_kpis(filters),
+        "summary": get_dashboard_kpis(translate_filters_for_sql(filters)),
         "global_top": attach_image_urls(agg_rank(filtered, ["商品代码", "商品名称", "品类", "选定价"], top_n), cover_color_map),
         "color_top": agg_rank(filtered, ["商品代码", "颜色代码", "颜色名称", "商品名称", "品类", "选定价"], top_n),
         "slow_moving": slow_moving,
