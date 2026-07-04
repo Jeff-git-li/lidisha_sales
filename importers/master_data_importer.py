@@ -1,0 +1,764 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+from openpyxl import load_workbook
+
+from database import get_db_connection
+from logging_config import get_logger
+
+
+logger = get_logger(__name__)
+
+PRODUCT_SHEET = "颜色尺码(&X)"
+MASTER_SHEET = "客户设置"
+PRODUCT_HEADER_ROW = 3
+MASTER_HEADER_ROW = 3
+
+DESIRED_TABLE_COLUMNS = {
+    "dim_product": [
+        "product_code",
+        "product_name",
+        "color_detail",
+        "size_detail",
+        "unit_name",
+        "year_code",
+        "major_category_code",
+        "major_category_name",
+        "season_code",
+        "season_name",
+        "brand_code",
+        "brand_name",
+        "supplier_code",
+        "supplier_name",
+        "category_code",
+        "category_name",
+        "production_factory_code",
+        "production_factory_name",
+        "designer_code",
+        "designer_name",
+        "launch_wave_code",
+        "launch_wave_name",
+        "main_material_code",
+        "main_material_name",
+        "series_code",
+        "series_name",
+        "standard_purchase_price",
+        "purchase_price_1",
+        "purchase_price_2",
+        "cost_price",
+        "standard_retail_price",
+        "foreign_trade_price",
+        "shipping_price",
+        "retail_price_3",
+        "retail_price_4",
+        "size_archive",
+        "created_by",
+        "created_at",
+        "modified_at",
+        "modified_by",
+        "barcode_mapping_code",
+        "barcode_print_count",
+        "barcode_print_time",
+        "national_standard_code",
+        "national_standard_sequence",
+        "is_stopped",
+        "is_stop_order",
+        "special_price_product",
+        "exchangeable_product",
+        "exchange_discount_within_period",
+        "exchange_discount_outside_period",
+        "detail_price_difference",
+        "specification_allocation",
+        "online_product",
+        "barcode_print_info_1",
+        "barcode_print_info_2",
+        "image_path",
+        "small_category_code",
+        "small_category_name",
+        "supplier_name_2",
+        "supplier_name_3",
+        "is_sample_clothing",
+        "is_sample_clothing_name",
+        "main_material_2",
+        "main_material_2_name",
+        "accessory_1",
+        "accessory_1_name",
+        "accessory_2",
+        "accessory_2_name",
+        "filler_1",
+        "filler_1_name",
+        "safety_technology_category_code",
+        "safety_technology_category_name",
+        "implementation_standard_code",
+        "implementation_standard_name",
+        "lining_material",
+        "lining_material_name",
+        "barcode_print_info_3",
+        "barcode_print_info_4",
+        "barcode_print_info_5",
+        "enabled_batch",
+    ],
+    "dim_product_option": ["product_code", "option_type", "option_value", "option_name", "source_order"],
+    "dim_store": [
+        "store_code",
+        "store_name",
+        "store_type_code",
+        "store_type_name",
+        "channel_code",
+        "region_code",
+        "region_name",
+        "province",
+        "city",
+        "open_date",
+        "close_date",
+        "imported_at",
+        "updated_at",
+    ],
+    "dim_channel": [
+        "channel_code",
+        "channel_name",
+        "channel_category_code",
+        "channel_category_name",
+        "parent_channel_code",
+        "parent_channel_name",
+        "region_code",
+        "region_name",
+        "imported_at",
+        "updated_at",
+    ],
+    "dim_calendar": [
+        "date_key",
+        "year",
+        "month",
+        "day",
+        "quarter",
+        "month_name",
+        "day_of_week",
+        "day_name",
+        "week_of_year",
+        "is_weekend",
+        "is_month_start",
+        "is_month_end",
+        "is_quarter_start",
+        "is_quarter_end",
+        "is_year_start",
+        "is_year_end",
+    ],
+}
+
+TABLE_CONFLICT_TARGETS = {
+    "dim_product": ["product_code"],
+    "dim_product_option": ["product_code", "option_type", "option_value"],
+    "dim_store": ["store_code"],
+    "dim_channel": ["channel_code"],
+    "dim_calendar": ["date_key"],
+}
+
+
+@dataclass(frozen=True)
+class ImportResult:
+    table_name: str
+    rows_read: int
+    rows_upserted: int
+
+
+def _text(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _float(value):
+    text = _text(value)
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _date(value) -> str | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    text = _text(value)
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return text or None
+
+
+def _split_detail(value: str) -> list[str]:
+    if not value:
+        return []
+    normalized = value
+    for separator in (",", "，", ";", "；", "|", "、", "/"):
+        normalized = normalized.replace(separator, ",")
+    return [item.strip() for item in normalized.split(",") if item.strip()]
+
+
+def _load_sheet(path: str | Path, sheet_name: str, header_row: int) -> tuple[list[str], list[dict[str, str]]]:
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    if sheet_name not in workbook.sheetnames:
+        raise ValueError(f"Workbook {path} is missing sheet {sheet_name}")
+    ws = workbook[sheet_name]
+    headers: list[str] = []
+    records: list[dict[str, str]] = []
+    for row_index, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        values = [_text(value) for value in row]
+        if row_index == header_row:
+            headers = [value for value in values if value]
+            continue
+        if row_index <= header_row:
+            continue
+        if not any(values):
+            continue
+        record = {headers[i]: values[i] if i < len(values) else "" for i in range(len(headers))}
+        records.append(record)
+    return headers, records
+
+
+def _upsert(conn, table_name: str, columns: list[str], rows: list[tuple], conflict_columns: list[str]) -> int:
+    if not rows:
+        return 0
+    update_columns = [column for column in columns if column not in conflict_columns]
+    placeholders = ", ".join(["?"] * len(columns))
+    column_sql = ", ".join(columns)
+    for row in rows:
+        if len(row) != len(columns):
+            raise ValueError(
+                f"{table_name}: expected {len(columns)} columns but got {len(row)} values. columns={columns}"
+            )
+    if update_columns:
+        update_sql = ", ".join([f"{column}=excluded.{column}" for column in update_columns])
+        sql = f"INSERT INTO {table_name} ({column_sql}) VALUES ({placeholders}) ON CONFLICT({', '.join(conflict_columns)}) DO UPDATE SET {update_sql}"
+    else:
+        sql = f"INSERT INTO {table_name} ({column_sql}) VALUES ({placeholders}) ON CONFLICT({', '.join(conflict_columns)}) DO NOTHING"
+    conn.executemany(sql, rows)
+    return len(rows)
+
+
+def _existing_columns(conn, table_name: str) -> list[str]:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return [row[1] for row in rows]
+
+
+def _recreate_table_if_needed(conn, table_name: str, create_sql: str) -> None:
+    desired_columns = DESIRED_TABLE_COLUMNS[table_name]
+    existing = _existing_columns(conn, table_name)
+    if existing and existing != desired_columns:
+        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+    conn.execute(create_sql)
+
+
+def create_master_tables(conn) -> None:
+    _recreate_table_if_needed(
+        conn,
+        "dim_product",
+        """
+        CREATE TABLE IF NOT EXISTS dim_product (
+            product_code TEXT PRIMARY KEY,
+            product_name TEXT,
+            color_detail TEXT,
+            size_detail TEXT,
+            unit_name TEXT,
+            year_code TEXT,
+            major_category_code TEXT,
+            major_category_name TEXT,
+            season_code TEXT,
+            season_name TEXT,
+            brand_code TEXT,
+            brand_name TEXT,
+            supplier_code TEXT,
+            supplier_name TEXT,
+            category_code TEXT,
+            category_name TEXT,
+            production_factory_code TEXT,
+            production_factory_name TEXT,
+            designer_code TEXT,
+            designer_name TEXT,
+            launch_wave_code TEXT,
+            launch_wave_name TEXT,
+            main_material_code TEXT,
+            main_material_name TEXT,
+            series_code TEXT,
+            series_name TEXT,
+            standard_purchase_price REAL,
+            purchase_price_1 REAL,
+            purchase_price_2 REAL,
+            cost_price REAL,
+            standard_retail_price REAL,
+            foreign_trade_price REAL,
+            shipping_price REAL,
+            retail_price_3 REAL,
+            retail_price_4 REAL,
+            size_archive TEXT,
+            created_by TEXT,
+            created_at TEXT,
+            modified_at TEXT,
+            modified_by TEXT,
+            barcode_mapping_code TEXT,
+            barcode_print_count TEXT,
+            barcode_print_time TEXT,
+            national_standard_code TEXT,
+            national_standard_sequence TEXT,
+            is_stopped TEXT,
+            is_stop_order TEXT,
+            special_price_product TEXT,
+            exchangeable_product TEXT,
+            exchange_discount_within_period TEXT,
+            exchange_discount_outside_period TEXT,
+            detail_price_difference TEXT,
+            specification_allocation TEXT,
+            online_product TEXT,
+            barcode_print_info_1 TEXT,
+            barcode_print_info_2 TEXT,
+            image_path TEXT,
+            small_category_code TEXT,
+            small_category_name TEXT,
+            supplier_name_2 TEXT,
+            supplier_name_3 TEXT,
+            is_sample_clothing TEXT,
+            is_sample_clothing_name TEXT,
+            main_material_2 TEXT,
+            main_material_2_name TEXT,
+            accessory_1 TEXT,
+            accessory_1_name TEXT,
+            accessory_2 TEXT,
+            accessory_2_name TEXT,
+            filler_1 TEXT,
+            filler_1_name TEXT,
+            safety_technology_category_code TEXT,
+            safety_technology_category_name TEXT,
+            implementation_standard_code TEXT,
+            implementation_standard_name TEXT,
+            lining_material TEXT,
+            lining_material_name TEXT,
+            barcode_print_info_3 TEXT,
+            barcode_print_info_4 TEXT,
+            barcode_print_info_5 TEXT,
+            enabled_batch TEXT
+        );
+        """
+    )
+    _recreate_table_if_needed(
+        conn,
+        "dim_product_option",
+        """
+        CREATE TABLE IF NOT EXISTS dim_product_option (
+            product_code TEXT NOT NULL,
+            option_type TEXT NOT NULL,
+            option_value TEXT NOT NULL,
+            option_name TEXT,
+            source_order INTEGER NOT NULL,
+            PRIMARY KEY (product_code, option_type, option_value)
+        );
+        """,
+    )
+    _recreate_table_if_needed(
+        conn,
+        "dim_store",
+        """
+        CREATE TABLE IF NOT EXISTS dim_store (
+            store_code TEXT PRIMARY KEY,
+            store_name TEXT,
+            store_type_code TEXT,
+            store_type_name TEXT,
+            channel_code TEXT,
+            region_code TEXT,
+            region_name TEXT,
+            province TEXT,
+            city TEXT,
+            open_date TEXT,
+            close_date TEXT,
+            imported_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """,
+    )
+    _recreate_table_if_needed(
+        conn,
+        "dim_channel",
+        """
+        CREATE TABLE IF NOT EXISTS dim_channel (
+            channel_code TEXT PRIMARY KEY,
+            channel_name TEXT,
+            channel_category_code TEXT,
+            channel_category_name TEXT,
+            parent_channel_code TEXT,
+            parent_channel_name TEXT,
+            region_code TEXT,
+            region_name TEXT,
+            imported_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """,
+    )
+    _recreate_table_if_needed(
+        conn,
+        "dim_calendar",
+        """
+        CREATE TABLE IF NOT EXISTS dim_calendar (
+            date_key TEXT PRIMARY KEY,
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            day INTEGER NOT NULL,
+            quarter INTEGER NOT NULL,
+            month_name TEXT NOT NULL,
+            day_of_week INTEGER NOT NULL,
+            day_name TEXT NOT NULL,
+            week_of_year INTEGER NOT NULL,
+            is_weekend INTEGER NOT NULL,
+            is_month_start INTEGER NOT NULL,
+            is_month_end INTEGER NOT NULL,
+            is_quarter_start INTEGER NOT NULL,
+            is_quarter_end INTEGER NOT NULL,
+            is_year_start INTEGER NOT NULL,
+            is_year_end INTEGER NOT NULL
+        );
+        """,
+    )
+
+
+def import_products(conn, path: str | Path) -> ImportResult:
+    _, records = _load_sheet(path, PRODUCT_SHEET, PRODUCT_HEADER_ROW)
+    rows = []
+    option_rows = []
+    for record in records:
+        product_code = _text(record.get("商品代码"))
+        if not product_code:
+            continue
+        color_detail = _text(record.get("颜色明细"))
+        size_detail = _text(record.get("尺码明细"))
+        rows.append(
+            (
+                product_code,
+                _text(record.get("商品名称")),
+                color_detail,
+                size_detail,
+                _text(record.get("单位名称")),
+                _text(record.get("年份")),
+                _text(record.get("大类")),
+                _text(record.get("大类名称")),
+                _text(record.get("季节")),
+                _text(record.get("季节名称")),
+                _text(record.get("品牌")),
+                _text(record.get("品牌名称")),
+                _text(record.get("供应商")),
+                _text(record.get("供应商名称")),
+                _text(record.get("类别")),
+                _text(record.get("类别名称")),
+                _text(record.get("生产工厂")),
+                _text(record.get("生产工厂名称")),
+                _text(record.get("设计师")),
+                _text(record.get("设计师名称")),
+                _text(record.get("上货波段")),
+                _text(record.get("上货波段名称")),
+                _text(record.get("主面料")),
+                _text(record.get("主面料名称")),
+                _text(record.get("系列")),
+                _text(record.get("系列名称")),
+                _float(record.get("标准进价")),
+                _float(record.get("进价1")),
+                _float(record.get("进价2")),
+                _float(record.get("成本价")),
+                _float(record.get("标准售价")),
+                _float(record.get("外贸售价")),
+                _float(record.get("发货价")),
+                _float(record.get("售价3")),
+                _float(record.get("售价4")),
+                _text(record.get("尺码档")),
+                _text(record.get("建档人")),
+                _text(record.get("建档日期")),
+                _text(record.get("修改日期")),
+                _text(record.get("修改人")),
+                _text(record.get("条码对照码")),
+                _text(record.get("条码打印次数")),
+                _text(record.get("条码打印时间")),
+                _text(record.get("国标码")),
+                _text(record.get("国标码序号")),
+                _text(record.get("停止使用")),
+                _text(record.get("停止订货")),
+                _text(record.get("特价商品")),
+                _text(record.get("可换货商品")),
+                _text(record.get("换货期内换货折")),
+                _text(record.get("换货期外换货折")),
+                _text(record.get("明细异价")),
+                _text(record.get("规格分配")),
+                _text(record.get("线上商品")),
+                _text(record.get("条码打印信息一")),
+                _text(record.get("条码打印信息二")),
+                _text(record.get("图片")),
+                _text(record.get("小类")),
+                _text(record.get("小类名称")),
+                _text(record.get("供应商名称")),
+                _text(record.get("供应商名称")),
+                _text(record.get("是否样衣")),
+                _text(record.get("是否样衣名称")),
+                _text(record.get("主料")),
+                _text(record.get("主料名称")),
+                _text(record.get("配料1")),
+                _text(record.get("配料1名称")),
+                _text(record.get("配料2")),
+                _text(record.get("配料2名称")),
+                _text(record.get("填充物")),
+                _text(record.get("填充物名称")),
+                _text(record.get("安全技术类别")),
+                _text(record.get("安全技术类别名称")),
+                _text(record.get("执行标准")),
+                _text(record.get("执行标准名称")),
+                _text(record.get("里料")),
+                _text(record.get("里料名称")),
+                _text(record.get("条码打印信息一")),
+                _text(record.get("条码打印信息二")),
+                _text(record.get("条码打印信息三")),
+                _text(record.get("启用批次")),
+            )
+        )
+        colors = _split_detail(color_detail)
+        sizes = _split_detail(size_detail)
+        for option_order, color in enumerate(colors, start=1):
+            option_rows.append((product_code, "color", color, color, option_order))
+        for option_order, size in enumerate(sizes, start=1):
+            option_rows.append((product_code, "size", size, size, option_order))
+
+    product_columns = [
+        "product_code",
+        "product_name",
+        "color_detail",
+        "size_detail",
+        "unit_name",
+        "year_code",
+        "major_category_code",
+        "major_category_name",
+        "season_code",
+        "season_name",
+        "brand_code",
+        "brand_name",
+        "supplier_code",
+        "supplier_name",
+        "category_code",
+        "category_name",
+        "production_factory_code",
+        "production_factory_name",
+        "designer_code",
+        "designer_name",
+        "launch_wave_code",
+        "launch_wave_name",
+        "main_material_code",
+        "main_material_name",
+        "series_code",
+        "series_name",
+        "standard_purchase_price",
+        "purchase_price_1",
+        "purchase_price_2",
+        "cost_price",
+        "standard_retail_price",
+        "foreign_trade_price",
+        "shipping_price",
+        "retail_price_3",
+        "retail_price_4",
+        "size_archive",
+        "created_by",
+        "created_at",
+        "modified_at",
+        "modified_by",
+        "barcode_mapping_code",
+        "barcode_print_count",
+        "barcode_print_time",
+        "national_standard_code",
+        "national_standard_sequence",
+        "is_stopped",
+        "is_stop_order",
+        "special_price_product",
+        "exchangeable_product",
+        "exchange_discount_within_period",
+        "exchange_discount_outside_period",
+        "detail_price_difference",
+        "specification_allocation",
+        "online_product",
+        "barcode_print_info_1",
+        "barcode_print_info_2",
+        "image_path",
+        "small_category_code",
+        "small_category_name",
+        "supplier_name_2",
+        "supplier_name_3",
+        "is_sample_clothing",
+        "is_sample_clothing_name",
+        "main_material_2",
+        "main_material_2_name",
+        "accessory_1",
+        "accessory_1_name",
+        "accessory_2",
+        "accessory_2_name",
+        "filler_1",
+        "filler_1_name",
+        "safety_technology_category_code",
+        "safety_technology_category_name",
+        "implementation_standard_code",
+        "implementation_standard_name",
+        "lining_material",
+        "lining_material_name",
+        "barcode_print_info_3",
+        "barcode_print_info_4",
+        "barcode_print_info_5",
+        "enabled_batch",
+    ]
+    option_columns = ["product_code", "option_type", "option_value", "option_name", "source_order"]
+    product_count = _upsert(conn, "dim_product", product_columns, rows, conflict_columns=TABLE_CONFLICT_TARGETS["dim_product"])
+    option_count = _upsert(conn, "dim_product_option", option_columns, option_rows, conflict_columns=["product_code", "option_type", "option_value"])
+    return ImportResult("dim_product", len(records), product_count + option_count)
+
+
+def import_stores(conn, path: str | Path) -> ImportResult:
+    _, records = _load_sheet(path, MASTER_SHEET, MASTER_HEADER_ROW)
+    rows = []
+    imported_at = datetime.now().isoformat(timespec="seconds")
+    for record in records:
+        store_code = _text(record.get("代码"))
+        if not store_code:
+            continue
+        rows.append((
+            store_code,
+            _text(record.get("名称")),
+            _text(record.get("类别")),
+            _text(record.get("类别名称")),
+            _text(record.get("所属渠道")),
+            _text(record.get("区域")),
+            _text(record.get("区域名称")),
+            _text(record.get("省")),
+            _text(record.get("市")),
+            None,
+            _date(record.get("业务截止日期")),
+            imported_at,
+            imported_at,
+        ))
+    columns = [
+        "store_code",
+        "store_name",
+        "store_type_code",
+        "store_type_name",
+        "channel_code",
+        "region_code",
+        "region_name",
+        "province",
+        "city",
+        "open_date",
+        "close_date",
+        "imported_at",
+        "updated_at",
+    ]
+    count = _upsert(conn, "dim_store", columns, rows, conflict_columns=["store_code"])
+    return ImportResult("dim_store", len(records), count)
+
+
+def import_channels(conn, path: str | Path) -> ImportResult:
+    _, records = _load_sheet(path, MASTER_SHEET, MASTER_HEADER_ROW)
+    rows = []
+    imported_at = datetime.now().isoformat(timespec="seconds")
+    for record in records:
+        channel_code = _text(record.get("代码"))
+        if not channel_code:
+            continue
+        rows.append((
+            channel_code,
+            _text(record.get("名称")),
+            _text(record.get("类别")),
+            _text(record.get("类别名称")),
+            _text(record.get("所属渠道")),
+            _text(record.get("所属渠道名称")),
+            _text(record.get("区域")),
+            _text(record.get("区域名称")),
+            imported_at,
+            imported_at,
+        ))
+    columns = [
+        "channel_code",
+        "channel_name",
+        "channel_category_code",
+        "channel_category_name",
+        "parent_channel_code",
+        "parent_channel_name",
+        "region_code",
+        "region_name",
+        "imported_at",
+        "updated_at",
+    ]
+    count = _upsert(conn, "dim_channel", columns, rows, conflict_columns=["channel_code"])
+    return ImportResult("dim_channel", len(records), count)
+
+
+def create_calendar(conn, start_date: str = "2020-01-01", end_date: str = "2035-12-31") -> int:
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    rows = []
+    current = start
+    while current <= end:
+        month_end = (current.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        rows.append((
+            current.isoformat(),
+            current.year,
+            current.month,
+            current.day,
+            ((current.month - 1) // 3) + 1,
+            current.strftime("%B"),
+            current.isoweekday(),
+            current.strftime("%A"),
+            int(current.strftime("%W")) + 1,
+            1 if current.weekday() >= 5 else 0,
+            1 if current.day == 1 else 0,
+            1 if current == month_end else 0,
+            1 if current.month in (1, 4, 7, 10) and current.day == 1 else 0,
+            1 if current.month in (3, 6, 9, 12) and current == month_end else 0,
+            1 if current.month == 1 and current.day == 1 else 0,
+            1 if current.month == 12 and current == month_end else 0,
+        ))
+        current += timedelta(days=1)
+    conn.execute("DELETE FROM dim_calendar")
+    conn.executemany(
+        "INSERT INTO dim_calendar(date_key, year, month, day, quarter, month_name, day_of_week, day_name, week_of_year, is_weekend, is_month_start, is_month_end, is_quarter_start, is_quarter_end, is_year_start, is_year_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    return len(rows)
+
+
+def table_counts(conn) -> dict[str, int]:
+    counts = {}
+    for table_name in ("dim_product", "dim_product_option", "dim_store", "dim_channel", "dim_calendar"):
+        row = conn.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
+        counts[table_name] = int(row[0]) if row else 0
+    return counts
+
+
+def import_master_data(products: str | None = None, stores: str | None = None, channels: str | None = None, calendar_only: bool = False, calendar_start: str = "2020-01-01", calendar_end: str = "2035-12-31") -> dict[str, int]:
+    with get_db_connection() as conn:
+        create_master_tables(conn)
+        results: dict[str, int] = {}
+        if not calendar_only:
+            if products:
+                result = import_products(conn, products)
+                logger.info("Imported %s rows into %s", result.rows_upserted, result.table_name)
+                results[result.table_name] = result.rows_upserted
+            if stores:
+                result = import_stores(conn, stores)
+                logger.info("Imported %s rows into %s", result.rows_upserted, result.table_name)
+                results[result.table_name] = result.rows_upserted
+            if channels:
+                result = import_channels(conn, channels)
+                logger.info("Imported %s rows into %s", result.rows_upserted, result.table_name)
+                results[result.table_name] = result.rows_upserted
+        calendar_rows = create_calendar(conn, calendar_start, calendar_end)
+        logger.info("Imported %s rows into dim_calendar", calendar_rows)
+        results["dim_calendar"] = calendar_rows
+        conn.commit()
+        return results
