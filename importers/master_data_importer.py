@@ -157,6 +157,10 @@ TABLE_CONFLICT_TARGETS = {
     "dim_calendar": ["date_key"],
 }
 
+SALES_HEADER_ROW = 14
+SALES_REQUIRED_COLUMNS = ["日期", "商品代码", "商店代码", "颜色名称", "尺码名称", "数量"]
+SALES_OPTIONAL_COLUMNS = ["金额", "成交价", "折扣"]
+
 
 @dataclass(frozen=True)
 class ImportResult:
@@ -204,6 +208,16 @@ def _split_detail(value: str) -> list[str]:
     for separator in (",", "，", ";", "；", "|", "、", "/"):
         normalized = normalized.replace(separator, ",")
     return [item.strip() for item in normalized.split(",") if item.strip()]
+
+
+def _safe_hash(parts: list[str]) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    for part in parts:
+        digest.update((part or "").encode("utf-8"))
+        digest.update(b"\x1f")
+    return digest.hexdigest()
 
 
 def _load_sheet(path: str | Path, sheet_name: str, header_row: int) -> tuple[list[str], list[dict[str, str]]]:
@@ -730,6 +744,294 @@ def create_calendar(conn, start_date: str = "2020-01-01", end_date: str = "2035-
         rows,
     )
     return len(rows)
+
+
+def ensure_sales_table(conn) -> None:
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS fact_retail_sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_date TEXT NOT NULL,
+            date_key TEXT NOT NULL,
+            product_code TEXT NOT NULL,
+            store_code TEXT NOT NULL,
+            color_name TEXT,
+            size_name TEXT,
+            qty REAL NOT NULL,
+            amount REAL,
+            unit_price REAL,
+            discount_rate REAL,
+            source_file TEXT NOT NULL,
+            source_row_hash TEXT NOT NULL,
+            load_batch_id TEXT NOT NULL,
+            import_run_time TEXT NOT NULL,
+            imported_at TEXT NOT NULL,
+            UNIQUE (source_row_hash)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_date_key ON fact_retail_sales(date_key);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_product_code ON fact_retail_sales(product_code);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_store_code ON fact_retail_sales(store_code);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_batch_id ON fact_retail_sales(load_batch_id);
+        """
+    )
+    ensure_sales_indexes(conn)
+    ensure_import_log_table(conn)
+
+
+def ensure_sales_indexes(conn) -> None:
+    conn.executescript(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_retail_sales_source_row_hash
+            ON fact_retail_sales(source_row_hash);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_sale_date
+            ON fact_retail_sales(sale_date);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_date_key
+            ON fact_retail_sales(date_key);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_product_code
+            ON fact_retail_sales(product_code);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_store_code
+            ON fact_retail_sales(store_code);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_product_code_sale_date
+            ON fact_retail_sales(product_code, sale_date);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_store_code_sale_date
+            ON fact_retail_sales(store_code, sale_date);
+        CREATE INDEX IF NOT EXISTS idx_dim_product_product_code
+            ON dim_product(product_code);
+        CREATE INDEX IF NOT EXISTS idx_dim_product_year_code
+            ON dim_product(year_code);
+        CREATE INDEX IF NOT EXISTS idx_dim_product_season_name
+            ON dim_product(season_name);
+        CREATE INDEX IF NOT EXISTS idx_dim_product_launch_wave_name
+            ON dim_product(launch_wave_name);
+        CREATE INDEX IF NOT EXISTS idx_dim_product_category_name
+            ON dim_product(category_name);
+        CREATE INDEX IF NOT EXISTS idx_dim_product_major_category_name
+            ON dim_product(major_category_name);
+        CREATE INDEX IF NOT EXISTS idx_dim_product_designer_name
+            ON dim_product(designer_name);
+        CREATE INDEX IF NOT EXISTS idx_dim_store_store_code
+            ON dim_store(store_code);
+        CREATE INDEX IF NOT EXISTS idx_dim_store_region_name
+            ON dim_store(region_name);
+        CREATE INDEX IF NOT EXISTS idx_dim_store_channel_code
+            ON dim_store(channel_code);
+        """
+    )
+
+
+def ensure_import_log_table(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS import_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            load_batch_id TEXT,
+            import_type TEXT NOT NULL,
+            source_file TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL,
+            rows_read INTEGER NOT NULL DEFAULT 0,
+            rows_imported INTEGER NOT NULL DEFAULT 0,
+            duplicate_rows INTEGER NOT NULL DEFAULT 0,
+            unknown_product_rows INTEGER NOT NULL DEFAULT 0,
+            unknown_product_codes TEXT,
+            unknown_store_rows INTEGER NOT NULL DEFAULT 0,
+            unknown_store_codes TEXT,
+            elapsed_seconds REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,
+            message TEXT
+        );
+        """
+    )
+
+
+def write_import_log(conn, entry: dict[str, object]) -> int:
+    columns = [
+        "load_batch_id",
+        "import_type",
+        "source_file",
+        "started_at",
+        "finished_at",
+        "rows_read",
+        "rows_imported",
+        "duplicate_rows",
+        "unknown_product_rows",
+        "unknown_product_codes",
+        "unknown_store_rows",
+        "unknown_store_codes",
+        "elapsed_seconds",
+        "status",
+        "message",
+    ]
+    values = tuple(entry.get(column) for column in columns)
+    conn.execute(
+        """
+        INSERT INTO import_log (
+            load_batch_id, import_type, source_file, started_at, finished_at,
+            rows_read, rows_imported, duplicate_rows, unknown_product_rows,
+            unknown_product_codes, unknown_store_rows, unknown_store_codes,
+            elapsed_seconds, status, message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
+    return int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+
+def _find_sales_header_row(ws) -> int:
+    normalized_required = {value.strip() for value in SALES_REQUIRED_COLUMNS}
+    for row_index, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        values = [_text(value) for value in row]
+        if not any(values):
+            continue
+        normalized = {value for value in values if value}
+        if normalized_required.issubset(normalized):
+            return row_index
+    raise ValueError("Unable to locate sales header row")
+
+
+def _load_sales_rows(path: str | Path):
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    ws = workbook[workbook.sheetnames[0]]
+    header_row = _find_sales_header_row(ws)
+    headers: list[str] = []
+    for row_index, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        values = [_text(value) for value in row]
+        if row_index == header_row:
+            headers = [value for value in values if value]
+            break
+    if not headers:
+        raise ValueError(f"Unable to read sales header row from {path}")
+    for row_index, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        if row_index <= header_row:
+            continue
+        values = [_text(value) for value in row]
+        if not any(values):
+            continue
+        record = {headers[i]: values[i] if i < len(values) else "" for i in range(len(headers))}
+        yield header_row, row_index, record
+
+
+def _next_batch_id(conn, run_date: str) -> str:
+    prefix = run_date.replace("-", "")
+    row = conn.execute(
+        "SELECT load_batch_id FROM fact_retail_sales WHERE load_batch_id LIKE ? ORDER BY load_batch_id DESC LIMIT 1",
+        (f"{prefix}_%",),
+    ).fetchone()
+    if not row:
+        return f"{prefix}_001"
+    suffix = int(str(row[0]).split("_")[-1]) + 1
+    return f"{prefix}_{suffix:03d}"
+
+
+def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[str, int | float | str]:
+    ensure_sales_table(conn)
+    source_path = str(Path(path).resolve())
+    import_run_time = datetime.now().isoformat(timespec="seconds")
+    run_date = datetime.now().strftime("%Y-%m-%d")
+    load_batch_id = _next_batch_id(conn, run_date)
+    imported_at = import_run_time
+
+    rows_read = 0
+    rows_imported = 0
+    duplicate_rows = 0
+    unknown_product_codes: set[str] = set()
+    unknown_store_codes: set[str] = set()
+    unknown_product_rows = 0
+    unknown_store_rows = 0
+    batch_rows: list[tuple] = []
+
+    product_codes = {row[0] for row in conn.execute("SELECT product_code FROM dim_product").fetchall()}
+    store_codes = {row[0] for row in conn.execute("SELECT store_code FROM dim_store").fetchall()}
+
+    for header_row, excel_row, record in _load_sales_rows(path):
+        rows_read += 1
+        sale_date = _date(record.get("日期"))
+        product_code = _text(record.get("商品代码"))
+        store_code = _text(record.get("商店代码"))
+        color_name = _text(record.get("颜色名称"))
+        size_name = _text(record.get("尺码名称"))
+        qty = _float(record.get("数量")) or 0.0
+        amount = _float(record.get("金额"))
+        unit_price = _float(record.get("成交价"))
+        discount_rate = _float(record.get("折扣"))
+
+        if product_code and product_code not in product_codes:
+            unknown_product_rows += 1
+            unknown_product_codes.add(product_code)
+        if store_code and store_code not in store_codes:
+            unknown_store_rows += 1
+            unknown_store_codes.add(store_code)
+
+        if not sale_date or not product_code or not store_code:
+            continue
+
+        date_key = sale_date.replace("-", "")
+        row_hash = _safe_hash([sale_date, product_code, store_code, color_name, size_name, str(qty), "" if amount is None else str(amount), source_path])
+        batch_rows.append((
+            sale_date,
+            date_key,
+            product_code,
+            store_code,
+            color_name,
+            size_name,
+            qty,
+            amount,
+            unit_price,
+            discount_rate,
+            source_path,
+            row_hash,
+            load_batch_id,
+            import_run_time,
+            imported_at,
+        ))
+
+        if len(batch_rows) >= batch_size:
+            rows_imported += _flush_sales_rows(conn, batch_rows)
+            conn.commit()
+            batch_rows.clear()
+
+    if batch_rows:
+        rows_imported += _flush_sales_rows(conn, batch_rows)
+        conn.commit()
+
+    if unknown_product_codes:
+        logger.warning("Unknown products: %s", ", ".join(sorted(unknown_product_codes)))
+    if unknown_store_codes:
+        logger.warning("Unknown stores: %s", ", ".join(sorted(unknown_store_codes)))
+
+    return {
+        "source_file": source_path,
+        "rows_read": rows_read,
+        "rows_imported": rows_imported,
+        "duplicate_rows": rows_read - rows_imported,
+        "unknown_product_rows": unknown_product_rows,
+        "unknown_product_codes": ",".join(sorted(unknown_product_codes)),
+        "unknown_store_rows": unknown_store_rows,
+        "unknown_store_codes": ",".join(sorted(unknown_store_codes)),
+        "unknown_products": len(unknown_product_codes),
+        "unknown_stores": len(unknown_store_codes),
+        "load_batch_id": load_batch_id,
+        "import_run_time": import_run_time,
+    }
+
+
+def _flush_sales_rows(conn, rows: list[tuple]) -> int:
+    before = conn.total_changes
+    conn.executemany(
+        """
+        INSERT INTO fact_retail_sales(
+            sale_date, date_key, product_code, store_code, color_name, size_name,
+            qty, amount, unit_price, discount_rate, source_file, source_row_hash,
+            load_batch_id, import_run_time, imported_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_row_hash) DO NOTHING
+        """,
+        rows,
+    )
+    inserted = conn.total_changes - before
+    return inserted
 
 
 def table_counts(conn) -> dict[str, int]:
