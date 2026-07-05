@@ -1,12 +1,6 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>丽迪莎零售数据分析看板</title>
-  <link rel="stylesheet" href="/static/style.css" />
-</head>
-<body>
+{% extends "base.html" %}
+
+{% block content %}
   <header class="hero">
     <div>
       <h1>丽迪莎零售数据分析看板</h1>
@@ -119,12 +113,14 @@
     </section>
   </main>
 
-<script src="/static/app.js"></script>
-<div id="imageModal" onclick="closeImagePreview()">
-  <div class="modal-shell" onclick="event.stopPropagation()">
-    <button class="close-btn" onclick="closeImagePreview()">×</button>
-    <img id="imageModalImg" alt="产品大图" />
+  <div id="imageModal" onclick="closeImagePreview()">
+    <div class="modal-shell" onclick="event.stopPropagation()">
+      <button class="close-btn" onclick="closeImagePreview()">×</button>
+      <img id="imageModalImg" alt="产品大图" />
+    </div>
   </div>
-</div>
-</body>
-</html>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/app.js"></script>
+{% endblock %}

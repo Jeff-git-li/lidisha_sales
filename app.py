@@ -34,10 +34,25 @@ from config import (
 from database import get_db_connection
 from logging_config import configure_logging, get_logger
 from queries.dashboard import get_dashboard_kpis
+from routes.imports import imports_bp
+from routes.insights import insights_bp
+from routes.inventory import inventory_bp
+from routes.products import products_bp
+from routes.regions import regions_bp
+from routes.settings import settings_bp
+from routes.stores import stores_bp
 
 app = Flask(__name__)
 configure_logging()
 logger = get_logger(__name__)
+
+app.register_blueprint(products_bp)
+app.register_blueprint(stores_bp)
+app.register_blueprint(regions_bp)
+app.register_blueprint(inventory_bp)
+app.register_blueprint(insights_bp)
+app.register_blueprint(imports_bp)
+app.register_blueprint(settings_bp)
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 REGION_GROUPS = {
@@ -1139,6 +1154,8 @@ def index():
     date_max = df["日期"].max().strftime("%Y-%m-%d") if not df.empty and "日期" in df.columns else ""
     return render_template(
         "index.html",
+        page_title="Home",
+        active_page="home",
         summary=summary,
         regions=regions,
         categories=categories,
