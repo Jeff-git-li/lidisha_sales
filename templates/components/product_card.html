@@ -1,5 +1,14 @@
-{% macro render_product_card(product) -%}
+{% macro render_product_card(product, localized=False) -%}
 {% set image_url = product.image_path if product.image_path and (product.image_path.startswith('http') or product.image_path.startswith('/')) else url_for('product_image', code=product.product_code, color='_') %}
+{% set year_label = '年份' if localized else 'Year' %}
+{% set wave_label = '波段' if localized else 'Wave' %}
+{% set designer_label = '设计师' if localized else 'Designer' %}
+{% set category_label = '品类' if localized else 'Category' %}
+{% set sales_qty_label = '销售数量' if localized else 'Sales Qty' %}
+{% set sales_amount_label = '销售金额' if localized else 'Sales Amount' %}
+{% set avg_price_label = '平均单价' if localized else 'Avg Unit Price' %}
+{% set store_coverage_label = '覆盖门店' if localized else 'Store Coverage' %}
+{% set image_fallback_label = '暂无图片' if localized else 'No Image' %}
 <div class="col">
   <article class="card h-100 shadow-sm product-card border-0">
     <div class="row g-0 h-100">
@@ -14,7 +23,7 @@
           />
           <div class="product-card-fallback d-none">
             <div class="product-card-fallback-code">{{ product.product_code }}</div>
-            <div class="product-card-fallback-text">No Image</div>
+            <div class="product-card-fallback-text">{{ image_fallback_label }}</div>
           </div>
         </div>
       </div>
@@ -30,19 +39,19 @@
 
           <div class="mt-3 row g-2 small product-card-meta">
             <div class="col-6">
-              <div class="text-muted">Year</div>
+              <div class="text-muted">{{ year_label }}</div>
               <div class="fw-semibold">{{ product.year or 'N/A' }}</div>
             </div>
             <div class="col-6">
-              <div class="text-muted">Wave</div>
+              <div class="text-muted">{{ wave_label }}</div>
               <div class="fw-semibold text-truncate">{{ product.wave or 'N/A' }}</div>
             </div>
             <div class="col-12">
-              <div class="text-muted">Designer</div>
+              <div class="text-muted">{{ designer_label }}</div>
               <div class="fw-semibold text-truncate">{{ product.designer_name or 'N/A' }}</div>
             </div>
             <div class="col-12">
-              <div class="text-muted">Category</div>
+              <div class="text-muted">{{ category_label }}</div>
               <div class="fw-semibold text-truncate">{{ product.category_name or 'N/A' }} · {{ product.big_category_name or 'N/A' }}</div>
             </div>
           </div>
@@ -50,25 +59,25 @@
           <div class="mt-3 row g-2 text-center product-card-stats">
             <div class="col-6 col-xl-3">
               <div class="product-card-stat">
-                <div class="text-muted small">Sales Qty</div>
+                <div class="text-muted small">{{ sales_qty_label }}</div>
                 <div class="fw-bold">{{ '{:,.0f}'.format(product.sales_qty or 0) }}</div>
               </div>
             </div>
             <div class="col-6 col-xl-3">
               <div class="product-card-stat">
-                <div class="text-muted small">Sales Amount</div>
+                <div class="text-muted small">{{ sales_amount_label }}</div>
                 <div class="fw-bold">{{ '{:,.2f}'.format(product.sales_amount or 0) }}</div>
               </div>
             </div>
             <div class="col-6 col-xl-3">
               <div class="product-card-stat">
-                <div class="text-muted small">Avg Unit Price</div>
+                <div class="text-muted small">{{ avg_price_label }}</div>
                 <div class="fw-bold">{{ '{:,.2f}'.format(product.average_unit_price or 0) }}</div>
               </div>
             </div>
             <div class="col-6 col-xl-3">
               <div class="product-card-stat">
-                <div class="text-muted small">Store Coverage</div>
+                <div class="text-muted small">{{ store_coverage_label }}</div>
                 <div class="fw-bold">{{ '{:,.0f}'.format(product.store_coverage or 0) }}</div>
               </div>
             </div>

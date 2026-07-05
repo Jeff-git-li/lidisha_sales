@@ -34,6 +34,7 @@ from config import (
 from database import get_db_connection
 from logging_config import configure_logging, get_logger
 from queries.dashboard import get_dashboard_kpis
+from queries.top20 import get_top20_products
 from routes.imports import imports_bp
 from routes.insights import insights_bp
 from routes.inventory import inventory_bp
@@ -1135,10 +1136,43 @@ def attach_image_urls_by_code(rows: list[dict], cover_color_map: dict) -> list[d
     return rows
 
 
+def ensure_dashboard_data() -> None:
+    global DATA, INVENTORY_DATA
+    if DATA is None or INVENTORY_DATA is None:
+        try:
+            reload_dashboard_data(trigger="lazy")
+        except sqlite3.OperationalError:
+            with get_db_connection() as conn:
+                DATA = load_sales_from_db(conn)
+            INVENTORY_DATA = refresh_inventory_data()
+
+
+def get_latest_update_label() -> str:
+    with get_db_connection() as conn:
+        for sql in (
+            "SELECT finished_at AS updated_at FROM import_log ORDER BY finished_at DESC LIMIT 1",
+            "SELECT imported_at AS updated_at FROM imports ORDER BY imported_at DESC LIMIT 1",
+        ):
+            try:
+                row = conn.execute(sql).fetchone()
+            except sqlite3.OperationalError:
+                continue
+            if row and row["updated_at"]:
+                updated_at = str(row["updated_at"])
+                try:
+                    parsed = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                    return parsed.strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    return updated_at
+    return ""
+
+
 @app.route("/")
 def index():
+    ensure_dashboard_data()
     df = DATA
     summary = get_dashboard_kpis(None)
+    top5_products = get_top20_products(top_n=5)
     grouped_regions = {member for members in REGION_GROUPS.values() for member in members}
     regions = [
         region
@@ -1152,11 +1186,20 @@ def index():
     wave_options = wave_option_rows(df)
     date_min = df["日期"].min().strftime("%Y-%m-%d") if not df.empty and "日期" in df.columns else ""
     date_max = df["日期"].max().strftime("%Y-%m-%d") if not df.empty and "日期" in df.columns else ""
+    home_metrics = [
+        {"label": "销售数量", "value": summary.get("总销量", 0)},
+        {"label": "销售金额", "value": summary.get("总销售额", 0)},
+        {"label": "覆盖门店", "value": summary.get("商店数", 0)},
+        {"label": "有销售商品数", "value": summary.get("核心款数", 0)},
+    ]
     return render_template(
         "index.html",
         page_title="经营驾驶舱",
         active_page="home",
         summary=summary,
+        latest_update=get_latest_update_label(),
+        home_metrics=home_metrics,
+        top5_products=top5_products,
         regions=regions,
         categories=categories,
         stores=stores,
@@ -1173,6 +1216,7 @@ def index():
 
 @app.route("/api/dashboard")
 def api_dashboard():
+    ensure_dashboard_data()
     df = DATA
     inventory_df = INVENTORY_DATA if INVENTORY_DATA is not None else pd.DataFrame()
     top_n = int(request.args.get("top_n", APP_CONFIG["top_n"]))

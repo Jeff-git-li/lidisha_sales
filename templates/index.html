@@ -1,124 +1,203 @@
 {% extends "base.html" %}
+{% from "components/product_card.html" import render_product_card %}
 
 {% block content %}
-  <header class="hero">
-    <div>
-      <h1>丽迪莎零售数据分析看板</h1>
+  <section class="page-card">
+    <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3">
+      <div>
+        <div class="text-muted small mb-2">昨日经营简报</div>
+        <h1 class="mb-2">经营驾驶舱</h1>
+        <p class="mb-0 text-muted">面向管理层的晨会简报，聚焦昨日销售、重点商品、区域表现和风险提醒。</p>
+      </div>
+      <div class="text-xl-end">
+        <div class="text-muted small">数据更新时间</div>
+        <div class="fw-semibold fs-5">{{ latest_update or '暂无更新时间' }}</div>
+      </div>
     </div>
-    <button onclick="reloadData()">刷新数据</button>
-  </header>
-
-  <section class="filters">
-    <label>日期范围
-      <select id="datePreset">
-        <option value="week">近一周</option>
-        <option value="month" selected>近一月</option>
-        <option value="custom">自定义</option>
-      </select>
-    </label>
-    <label>开始日期
-      <input id="startDate" type="date" min="{{ date_min }}" max="{{ date_max }}" />
-    </label>
-    <label>结束日期
-      <input id="endDate" type="date" min="{{ date_min }}" max="{{ date_max }}" />
-    </label>
-    <label>区域
-      <select id="region" multiple>
-        <option value="全国">全国</option>
-        <option value="北区">北区（华北/东北/西北）</option>
-        <option value="中区">中区（华中/西南/华东/河南）</option>
-        <option value="南区">南区（华南）</option>
-        {% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}
-      </select>
-    </label>
-    <label>品类
-      <select id="category" multiple>
-        {% for c in categories %}<option value="{{c}}">{{c}}</option>{% endfor %}
-      </select>
-    </label>
-    <label>年份
-      <select id="yearPrefix" multiple>
-        {% for y in year_options %}<option value="{{y.value}}" {% if y.value == default_year_prefix %}selected{% endif %}>{{y.label}}</option>{% endfor %}
-      </select>
-    </label>
-    <label>季节
-      <select id="seasonCode" multiple>
-        {% for s in season_options %}<option value="{{s.value}}" {% if s.value == default_season_code %}selected{% endif %}>{{s.label}}</option>{% endfor %}
-      </select>
-    </label>
-    <label>波段
-      <select id="wave" multiple>
-        {% for w in wave_options %}<option value="{{w.value}}">{{w.label}}</option>{% endfor %}
-      </select>
-    </label>
-    <label>商店
-      <select id="store" multiple>
-        {% for s in stores %}<option value="{{s}}">{{s}}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Top N
-      <select id="topn"><option>10</option><option selected>20</option><option>30</option><option>50</option></select>
-    </label>
-    <button onclick="loadDashboard()">应用筛选</button>
   </section>
 
-  <section id="kpis" class="kpis"></section>
-
-  <main class="grid">
-    <section class="card wide">
-      <div class="card-title"><h2>销售视图</h2><span>KU + 2 默认，可按年份和季节切换</span></div>
-      <div class="tabs">
-        <button class="tab-btn active" data-tab-target="trendTab">日销售趋势</button>
-        <button class="tab-btn" data-tab-target="globalTopTab">款号 Top</button>
-        <button class="tab-btn" data-tab-target="colorTopTab">款色 Top</button>
-        <button class="tab-btn" data-tab-target="distributionTab">销量分布</button>
-        <button class="tab-btn" data-tab-target="regionTopTab">区域排行</button>
-        <button class="tab-btn" data-tab-target="matrixTab">爆款矩阵</button>
-        <button class="tab-btn" data-tab-target="slowMovingTab">滞销品</button>
+  <section class="page-card mt-4">
+    <div class="page-header">
+      <div>
+        <h2 class="h4 mb-1">核心指标</h2>
+        <p class="mb-0">使用 SQLite KPI 查询结果生成。</p>
       </div>
-      <div id="trendTab" class="tab-panel active">
-        <div id="dailySalesChart" class="chart-shell"></div>
-      </div>
-      <div id="globalTopTab" class="tab-panel">
-        <div id="globalTop" class="product-grid"></div>
-      </div>
-      <div id="colorTopTab" class="tab-panel">
-        <div id="colorTop" class="product-grid"></div>
-      </div>
-      <div id="distributionTab" class="tab-panel">
-        <div class="distribution-grid">
-          <section class="subcard">
-            <div class="card-title"><h2>区域贡献</h2><span>销量</span></div>
-            <div id="regionBars"></div>
-          </section>
-          <section class="subcard">
-            <div class="card-title"><h2>品类贡献</h2><span>销量</span></div>
-            <div id="categoryBars"></div>
-          </section>
-          <section class="subcard">
-            <div class="card-title"><h2>商店 Top</h2><span>销量</span></div>
-            <div id="storeBars"></div>
-          </section>
+      <button class="btn btn-outline-primary btn-sm" onclick="reloadData()">刷新数据</button>
+    </div>
+    <div class="row g-3">
+      {% for metric in home_metrics %}
+      <div class="col-12 col-md-6 col-xxl-3">
+        <div class="card h-100 shadow-sm border-0">
+          <div class="card-body">
+            <div class="text-muted small">{{ metric.label }}</div>
+            <div class="display-6 fw-semibold mt-2 mb-0">{{ '{:,.0f}'.format(metric.value or 0) if metric.label != '销售金额' else '{:,.2f}'.format(metric.value or 0) }}</div>
+          </div>
         </div>
       </div>
-      <div id="regionTopTab" class="tab-panel">
-        <div id="regionTop" class="four-col"></div>
-      </div>
-      <div id="matrixTab" class="tab-panel">
-        <div class="table-wrap"><table id="matrixTable"></table></div>
-      </div>
-      <div id="slowMovingTab" class="tab-panel">
-        <div id="slowMoving" class="product-grid"></div>
-      </div>
-    </section>
-  </main>
+      {% endfor %}
+    </div>
+  </section>
 
-  <div id="imageModal" onclick="closeImagePreview()">
-    <div class="modal-shell" onclick="event.stopPropagation()">
-      <button class="close-btn" onclick="closeImagePreview()">×</button>
-      <img id="imageModalImg" alt="产品大图" />
+  <div class="row g-4 mt-0">
+    <div class="col-xl-8">
+      <section class="page-card h-100 mt-4">
+        <h2 class="h4 mb-3">昨日经营简报 / AI 摘要</h2>
+        <p class="mb-0">AI 摘要将在后续版本基于昨日销售、商品、区域和库存数据自动生成。</p>
+      </section>
+    </div>
+    <div class="col-xl-4">
+      <section class="page-card h-100 mt-4">
+        <h2 class="h4 mb-3">异常提醒</h2>
+        <p class="mb-0">暂无异常提醒。后续将自动识别销售下滑、缺货、滞销和数据导入异常。</p>
+      </section>
     </div>
   </div>
+
+  <section class="page-card mt-4">
+    <div class="page-header">
+      <div>
+        <h2 class="h4 mb-1">爆款 Top 5</h2>
+        <p class="mb-0">使用语义层产品对象渲染。</p>
+      </div>
+    </div>
+    <div class="row row-cols-1 row-cols-lg-2 g-3">
+      {% for row in top5_products %}
+        {{ render_product_card(row, localized=True) }}
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="row g-4 mt-0">
+    <div class="col-xl-6">
+      <section class="page-card h-100 mt-4">
+        <h2 class="h4 mb-3">区域表现</h2>
+        <p class="mb-0">区域表现将在下一阶段接入 SQLite 区域分析查询。</p>
+      </section>
+    </div>
+    <div class="col-xl-6">
+      <section class="page-card h-100 mt-4">
+        <h2 class="h4 mb-3">说明</h2>
+        <p class="mb-0">本页保留旧版详细经营分析作为下方折叠内容，便于继续过渡到新的首页信息架构。</p>
+      </section>
+    </div>
+  </div>
+
+  <details class="page-card mt-4">
+    <summary class="h4 mb-0">详细经营分析</summary>
+    <div class="mt-4">
+      <section class="filters">
+        <label>日期范围
+          <select id="datePreset">
+            <option value="week">近一周</option>
+            <option value="month" selected>近一月</option>
+            <option value="custom">自定义</option>
+          </select>
+        </label>
+        <label>开始日期
+          <input id="startDate" type="date" min="{{ date_min }}" max="{{ date_max }}" />
+        </label>
+        <label>结束日期
+          <input id="endDate" type="date" min="{{ date_min }}" max="{{ date_max }}" />
+        </label>
+        <label>区域
+          <select id="region" multiple>
+            <option value="全国">全国</option>
+            <option value="北区">北区（华北/东北/西北）</option>
+            <option value="中区">中区（华中/西南/华东/河南）</option>
+            <option value="南区">南区（华南）</option>
+            {% for r in regions %}<option value="{{r}}">{{r}}</option>{% endfor %}
+          </select>
+        </label>
+        <label>品类
+          <select id="category" multiple>
+            {% for c in categories %}<option value="{{c}}">{{c}}</option>{% endfor %}
+          </select>
+        </label>
+        <label>年份
+          <select id="yearPrefix" multiple>
+            {% for y in year_options %}<option value="{{y.value}}" {% if y.value == default_year_prefix %}selected{% endif %}>{{y.label}}</option>{% endfor %}
+          </select>
+        </label>
+        <label>季节
+          <select id="seasonCode" multiple>
+            {% for s in season_options %}<option value="{{s.value}}" {% if s.value == default_season_code %}selected{% endif %}>{{s.label}}</option>{% endfor %}
+          </select>
+        </label>
+        <label>波段
+          <select id="wave" multiple>
+            {% for w in wave_options %}<option value="{{w.value}}">{{w.label}}</option>{% endfor %}
+          </select>
+        </label>
+        <label>商店
+          <select id="store" multiple>
+            {% for s in stores %}<option value="{{s}}">{{s}}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Top N
+          <select id="topn"><option>10</option><option selected>20</option><option>30</option><option>50</option></select>
+        </label>
+        <button onclick="loadDashboard()">应用筛选</button>
+      </section>
+
+      <section id="kpis" class="kpis"></section>
+
+      <main class="grid">
+        <section class="card wide">
+          <div class="card-title"><h2>销售视图</h2><span>KU + 2 默认，可按年份和季节切换</span></div>
+          <div class="tabs">
+            <button class="tab-btn active" data-tab-target="trendTab">日销售趋势</button>
+            <button class="tab-btn" data-tab-target="globalTopTab">款号 Top</button>
+            <button class="tab-btn" data-tab-target="colorTopTab">款色 Top</button>
+            <button class="tab-btn" data-tab-target="distributionTab">销量分布</button>
+            <button class="tab-btn" data-tab-target="regionTopTab">区域排行</button>
+            <button class="tab-btn" data-tab-target="matrixTab">爆款矩阵</button>
+            <button class="tab-btn" data-tab-target="slowMovingTab">滞销品</button>
+          </div>
+          <div id="trendTab" class="tab-panel active">
+            <div id="dailySalesChart" class="chart-shell"></div>
+          </div>
+          <div id="globalTopTab" class="tab-panel">
+            <div id="globalTop" class="product-grid"></div>
+          </div>
+          <div id="colorTopTab" class="tab-panel">
+            <div id="colorTop" class="product-grid"></div>
+          </div>
+          <div id="distributionTab" class="tab-panel">
+            <div class="distribution-grid">
+              <section class="subcard">
+                <div class="card-title"><h2>区域贡献</h2><span>销量</span></div>
+                <div id="regionBars"></div>
+              </section>
+              <section class="subcard">
+                <div class="card-title"><h2>品类贡献</h2><span>销量</span></div>
+                <div id="categoryBars"></div>
+              </section>
+              <section class="subcard">
+                <div class="card-title"><h2>商店 Top</h2><span>销量</span></div>
+                <div id="storeBars"></div>
+              </section>
+            </div>
+          </div>
+          <div id="regionTopTab" class="tab-panel">
+            <div id="regionTop" class="four-col"></div>
+          </div>
+          <div id="matrixTab" class="tab-panel">
+            <div class="table-wrap"><table id="matrixTable"></table></div>
+          </div>
+          <div id="slowMovingTab" class="tab-panel">
+            <div id="slowMoving" class="product-grid"></div>
+          </div>
+        </section>
+      </main>
+
+      <div id="imageModal" onclick="closeImagePreview()">
+        <div class="modal-shell" onclick="event.stopPropagation()">
+          <button class="close-btn" onclick="closeImagePreview()">×</button>
+          <img id="imageModalImg" alt="产品大图" />
+        </div>
+      </div>
+    </div>
+  </details>
 {% endblock %}
 
 {% block scripts %}
