@@ -8,7 +8,7 @@ def imports_page():
     return render_template(
         "placeholder.html",
         active_page="imports",
-        page_title="Imports",
-        heading="Imports",
-        message="Coming Soon",
+        page_title="数据中心",
+        heading="数据中心",
+        message="敬请期待",
     )

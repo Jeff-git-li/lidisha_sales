@@ -8,7 +8,7 @@ def stores_page():
     return render_template(
         "placeholder.html",
         active_page="stores",
-        page_title="Stores",
-        heading="Stores",
-        message="Coming Soon",
+        page_title="门店分析",
+        heading="门店分析",
+        message="敬请期待",
     )

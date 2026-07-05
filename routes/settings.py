@@ -8,7 +8,7 @@ def settings_page():
     return render_template(
         "placeholder.html",
         active_page="settings",
-        page_title="Settings",
-        heading="Settings",
-        message="Coming Soon",
+        page_title="系统设置",
+        heading="系统设置",
+        message="敬请期待",
     )

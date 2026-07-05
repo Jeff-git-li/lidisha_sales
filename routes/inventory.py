@@ -8,7 +8,7 @@ def inventory_page():
     return render_template(
         "placeholder.html",
         active_page="inventory",
-        page_title="Inventory",
-        heading="Inventory",
-        message="Coming Soon",
+        page_title="库存分析",
+        heading="库存分析",
+        message="敬请期待",
     )

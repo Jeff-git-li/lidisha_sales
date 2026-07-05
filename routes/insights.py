@@ -8,7 +8,7 @@ def insights_page():
     return render_template(
         "placeholder.html",
         active_page="insights",
-        page_title="Insights",
-        heading="Insights",
-        message="Coming Soon",
+        page_title="AI 洞察",
+        heading="AI 洞察",
+        message="敬请期待",
     )

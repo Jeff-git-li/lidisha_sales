@@ -80,6 +80,14 @@
 .page-header p{margin:8px 0 0;color:var(--muted)}
 .placeholder-card{min-height:220px;display:flex;align-items:center}
 .product-table th,.product-table td{white-space:nowrap}
+.product-card{overflow:hidden;border-radius:18px;background:#fff}
+.product-card-media{min-height:100%;background:linear-gradient(180deg,#f8fafc,#eef2ff);display:flex;align-items:center;justify-content:center;padding:16px;border-right:1px solid var(--line)}
+.product-card-image{width:100%;max-width:160px;max-height:160px;object-fit:contain;display:block}
+.product-card-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px;text-align:center;color:var(--muted)}
+.product-card-fallback-code{font-size:18px;font-weight:800;color:var(--ink)}
+.product-card-fallback-text{font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+.product-card-meta{font-size:13px}
+.product-card-stat{background:#f8fafc;border:1px solid var(--line);border-radius:14px;padding:10px 12px;height:100%}
 
 @media (max-width: 1200px){
 	.shell-layout{grid-template-columns:1fr}

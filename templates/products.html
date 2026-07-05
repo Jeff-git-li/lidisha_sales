@@ -1,55 +1,19 @@
 {% extends "base.html" %}
+{% from "components/product_card.html" import render_product_card %}
 
 {% block content %}
 <section class="page-card">
   <div class="page-header">
     <div>
-      <h1>Products</h1>
-      <p>Top 20 products loaded directly from SQLite via <code>queries.top20.get_top20_products()</code>.</p>
+      <h1>商品分析</h1>
+      <p>Top 20 商品直接通过 <code>queries.top20.get_top20_products()</code> 从 SQLite 读取。</p>
     </div>
   </div>
 
-  <div class="table-responsive">
-    <table class="table table-sm table-striped align-middle product-table">
-      <thead>
-        <tr>
-          <th>Product Code</th>
-          <th>Name</th>
-          <th>Year</th>
-          <th>Season</th>
-          <th>Wave</th>
-          <th>Designer</th>
-          <th>Category</th>
-          <th>Big Category</th>
-          <th class="text-end">Std Price</th>
-          <th class="text-end">Qty</th>
-          <th class="text-end">Amount</th>
-          <th class="text-end">Stores</th>
-          <th class="text-end">Colors</th>
-          <th class="text-end">Sizes</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-        <tr>
-          <td>{{ row.product_code }}</td>
-          <td>{{ row.product_name }}</td>
-          <td>{{ row.year }}</td>
-          <td>{{ row.season_name }}</td>
-          <td>{{ row.wave }}</td>
-          <td>{{ row.designer_name }}</td>
-          <td>{{ row.category_name }}</td>
-          <td>{{ row.big_category_name }}</td>
-          <td class="text-end">{{ '%.2f'|format(row.standard_price or 0) }}</td>
-          <td class="text-end">{{ '{:,.0f}'.format(row.qty or 0) }}</td>
-          <td class="text-end">{{ '{:,.2f}'.format(row.amount or 0) }}</td>
-          <td class="text-end">{{ row.store_count }}</td>
-          <td class="text-end">{{ row.color_count }}</td>
-          <td class="text-end">{{ row.size_count }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="row row-cols-1 row-cols-xxl-2 g-3">
+    {% for row in rows %}
+      {{ render_product_card(row) }}
+    {% endfor %}
   </div>
 </section>
 {% endblock %}

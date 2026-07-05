@@ -11,6 +11,6 @@ def products_page():
     return render_template(
         "products.html",
         active_page="products",
-        page_title="Products",
+        page_title="商品分析",
         rows=rows,
     )

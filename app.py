@@ -1154,7 +1154,7 @@ def index():
     date_max = df["日期"].max().strftime("%Y-%m-%d") if not df.empty and "日期" in df.columns else ""
     return render_template(
         "index.html",
-        page_title="Home",
+        page_title="经营驾驶舱",
         active_page="home",
         summary=summary,
         regions=regions,

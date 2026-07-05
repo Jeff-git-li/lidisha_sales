@@ -8,7 +8,7 @@ def regions_page():
     return render_template(
         "placeholder.html",
         active_page="regions",
-        page_title="Regions",
-        heading="Regions",
-        message="Coming Soon",
+        page_title="区域分析",
+        heading="区域分析",
+        message="敬请期待",
     )
