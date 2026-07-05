@@ -4,6 +4,7 @@ from typing import Any
 
 from queries.filters import build_where_clause, normalize_filter_values
 from queries.retail_queries import _query_all
+from semantic.product_metrics import ProductPerformance
 
 
 def _translate_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
@@ -18,7 +19,7 @@ def _translate_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
     return query_filters
 
 
-def get_top20_products(filters: dict[str, Any] | None = None, top_n: int = 20) -> list[dict[str, Any]]:
+def get_top20_products(filters: dict[str, Any] | None = None, top_n: int = 20) -> list[ProductPerformance]:
     query_filters = _translate_filters(filters)
     where_sql, params = build_where_clause(query_filters, core_only=True)
     sql = f"""
@@ -82,4 +83,4 @@ def get_top20_products(filters: dict[str, Any] | None = None, top_n: int = 20) -
     LIMIT ?
     """
     rows = _query_all(sql, params + [int(top_n)])
-    return [dict(row) for row in rows]
+    return [ProductPerformance.from_query_row(dict(row)) for row in rows]
