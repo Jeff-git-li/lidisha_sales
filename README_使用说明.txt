@@ -1,21 +1,30 @@
-零售销售Top20 Flask Dashboard 使用说明
+Retail Intelligence Platform 使用说明
 
-1. 安装Python 3.10或以上。
-2. 把RPA每天导出的“零售销售分析*.xlsx”放到本文件夹下的 exports 文件夹。
-   系统会读取这些零售销售文件用于销量、销售额、区域/商店/款号排行。
-3. 把当季进货底表放到 exports 文件夹，文件名建议为“进货数据*.xlsx”。
-   滞销品会基于这个进货文件和零售销售文件联合计算，因此从未卖出过但已进货的款色也会显示出来。
-4. 系统当前只保留商品代码以 K 开头的商品，并且会排除“赠品”“包/配饰”。
-5. 商品图片放在 R:\商品部 下面任意多级文件夹都可以。
-   文件名规则：商品代码_颜色代码.jpg / .png / .jpeg / .webp / .bmp
-   例如：KU21T1013_722.jpg
-6. 双击 run_dashboard.bat。
-7. 本机打开：http://127.0.0.1:5000
-8. 局域网其他人访问：http://你的电脑IP:5000
-   如果打不开，需要在Windows防火墙允许 Python 或开放 5000 端口。
+本项目面向服装品牌的零售分析场景，用于把 RPA 导出的业务数据沉淀为可查询、可扩展的零售数据平台。
 
-说明：
-- 这个版本不再依赖“只保留 K 开头商品”之类的旧规则。
-- 也不再使用基于商品代码前缀的业务逻辑来驱动查询。
-- Top20、区域、品类、商品分析等页面都应通过 SQLite 查询层获取数据。
-- 后续会继续扩展 API 和 AI 分析模块，但底层仍然复用同一套导入与查询体系。
+架构：
+RPA export → importer → SQLite data warehouse → query/filter layer → dashboard / future API / AI
+
+主要数据流：
+- import_master_data.py：导入商品、商店、渠道、日期维表。
+- import_sales.py：导入历史/每日零售销售，写入 fact_retail_sales。
+
+数据模型说明：
+- 商品代码只作为记录标识，不作为当前业务筛选逻辑。
+- 年份、季度、波段、品类、设计师等业务维度来自 dim_product。
+- 查询层统一通过可复用的 filter engine 组装 SQLite 条件，再提供给仪表板、后续 API 和 AI 模块复用。
+
+使用方式：
+1. 先确认 RPA 已完成当天导出，再把相关文件放入 exports 文件夹。
+2. 运行导入流程，更新 SQLite 数据仓库。
+3. 通过 Dashboard 查看结果，或后续接入 API / AI 分析功能。
+
+部署与访问：
+- 本机通过 Flask / Waitress 运行。
+- 对外访问通过 Cloudflare Tunnel：
+  https://retail.li-disha.com
+
+补充：
+- 商品图片保存在 R:\商品部 下的多级子目录中，系统会递归查找。
+- 文件名通常为 商品代码_颜色代码.jpg / .png / .jpeg / .webp / .bmp。
+- 这个说明文档面向内部使用，重点是数据导入、查询和访问路径，不再描述旧的 Top20 单页逻辑。
