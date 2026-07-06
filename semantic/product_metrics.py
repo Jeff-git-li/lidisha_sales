@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
 
 @dataclass(slots=True)
-class ProductPerformance:
+class ProductProfile:
     product_code: str
     product_name: str
     image_path: str
@@ -18,17 +18,9 @@ class ProductPerformance:
     category_name: str
     big_category_name: str
     standard_price: float
-    sales_qty: float
-    sales_amount: float
-    average_unit_price: float
-    store_coverage: int
-    color_count: int
-    size_count: int
 
     @classmethod
-    def from_query_row(cls, row: Mapping[str, Any]) -> "ProductPerformance":
-        sales_qty = float(row.get("qty", 0) or 0)
-        sales_amount = float(row.get("amount", 0) or 0)
+    def from_query_row(cls, row: Mapping[str, Any]) -> "ProductProfile":
         return cls(
             product_code=str(row.get("product_code", "") or ""),
             product_name=str(row.get("product_name", "") or ""),
@@ -42,6 +34,25 @@ class ProductPerformance:
             category_name=str(row.get("category_name", "") or ""),
             big_category_name=str(row.get("big_category_name", "") or ""),
             standard_price=float(row.get("standard_price", 0) or 0),
+        )
+
+
+@dataclass(slots=True)
+class ProductPerformance(ProductProfile):
+    sales_qty: float
+    sales_amount: float
+    average_unit_price: float
+    store_coverage: int
+    color_count: int
+    size_count: int
+
+    @classmethod
+    def from_query_row(cls, row: Mapping[str, Any]) -> "ProductPerformance":
+        sales_qty = float(row.get("qty", 0) or 0)
+        sales_amount = float(row.get("amount", 0) or 0)
+        profile = ProductProfile.from_query_row(row)
+        return cls(
+            **asdict(profile),
             sales_qty=sales_qty,
             sales_amount=sales_amount,
             average_unit_price=(sales_amount / sales_qty) if sales_qty else 0.0,

@@ -1,1 +1,1 @@
-from .product_metrics import ProductPerformance
+from .product_metrics import ProductPerformance, ProductProfile

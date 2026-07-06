@@ -1,19 +1,230 @@
 {% extends "base.html" %}
-{% from "components/product_card.html" import render_product_card %}
+{% from "components/product_card.html" import render_product_card, render_gallery_product_card %}
 
 {% block content %}
 <section class="page-card">
-  <div class="page-header">
+  <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3">
     <div>
-      <h1>商品分析</h1>
-      <p>Top 20 商品直接通过 <code>queries.top20.get_top20_products()</code> 从 SQLite 读取。</p>
+      <div class="text-muted small mb-2">Product Explorer</div>
+      <h1 class="mb-2">商品分析</h1>
+      <p class="mb-0 text-muted">基于语义层、共享筛选器和资产服务的产品探索页面。</p>
+    </div>
+    <div class="text-xl-end">
+      <div class="text-muted small">结果总数</div>
+      <div class="fw-semibold fs-5">{{ '{:,.0f}'.format(total_count or 0) }}</div>
     </div>
   </div>
+</section>
 
-  <div class="row row-cols-1 row-cols-xxl-2 g-3">
-    {% for row in rows %}
-      {{ render_product_card(row) }}
-    {% endfor %}
+<section class="page-card mt-4">
+  <form method="get" action="{{ query_action }}" class="product-explorer-filters">
+    <input type="hidden" name="page" value="1" />
+    <input type="hidden" name="mode" value="{{ display_mode }}" />
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-lg-4 col-xxl-3">
+        <label class="form-label fw-semibold">关键词搜索</label>
+        <input type="search" class="form-control" name="q" value="{{ search_query }}" placeholder="商品编码 / 商品名称 / Designer" />
+      </div>
+      <div class="col-6 col-lg-2 col-xxl-2">
+        <label class="form-label fw-semibold">排序</label>
+        <select class="form-select" name="sort">
+          {% for option in sort_options %}
+            <option value="{{ option.value }}" {% if option.value == sort_value %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-2 col-xxl-2">
+        <label class="form-label fw-semibold">方向</label>
+        <select class="form-select" name="order">
+          <option value="desc" {% if order_value == 'desc' %}selected{% endif %}>降序</option>
+          <option value="asc" {% if order_value == 'asc' %}selected{% endif %}>升序</option>
+        </select>
+      </div>
+      <div class="col-12 col-lg-4 col-xxl-2 d-flex gap-2 flex-wrap">
+        <button type="submit" class="btn btn-primary">应用筛选</button>
+        <a class="btn btn-outline-secondary" href="{{ query_action }}">重置</a>
+      </div>
+    </div>
+
+    <div class="row g-3 mt-1">
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">年份</label>
+        <select class="form-select form-select-sm" name="year" multiple size="5">
+          {% for option in options.year_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.year %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">季度</label>
+        <select class="form-select form-select-sm" name="season_name" multiple size="5">
+          {% for option in options.season_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.season_name %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">波段</label>
+        <select class="form-select form-select-sm" name="wave" multiple size="5">
+          {% for option in options.wave_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.wave %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">品牌</label>
+        <select class="form-select form-select-sm" name="brand_name" multiple size="5">
+          {% for option in options.brand_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.brand_name %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">设计师</label>
+        <select class="form-select form-select-sm" name="designer_name" multiple size="5">
+          {% for option in options.designer_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.designer_name %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">一级分类</label>
+        <select class="form-select form-select-sm" name="big_category_name" multiple size="5">
+          {% for option in options.big_category_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.big_category_name %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">二级分类</label>
+        <select class="form-select form-select-sm" name="category_name" multiple size="5">
+          {% for option in options.category_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.category_name %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">商品系列</label>
+        <select class="form-select form-select-sm" name="series_name" multiple size="5">
+          {% for option in options.series_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.series_name %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">价格带</label>
+        <select class="form-select form-select-sm" name="price_band" multiple size="5">
+          {% for option in options.price_band_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.price_band %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">颜色</label>
+        <select class="form-select form-select-sm" name="color_name" multiple size="5">
+          {% for option in options.color_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.color_name %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3 col-xxl-2">
+        <label class="form-label fw-semibold">门店</label>
+        <select class="form-select form-select-sm" name="store_name" multiple size="5">
+          {% for option in options.store_options %}
+            <option value="{{ option.value }}" {% if option.value in selected_filters.store_name %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </form>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-center gap-3 mb-3">
+    <div class="btn-group" role="group" aria-label="Display mode">
+      {% for mode in display_modes %}
+        <a class="btn {% if display_mode == mode.value %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{{ mode_links[mode.value] }}">{{ mode.label }}</a>
+      {% endfor %}
+    </div>
+    <div class="text-muted small">第 {{ page }} / {{ total_pages }} 页，每页 {{ per_page }} 条</div>
   </div>
+
+  {% if display_mode == 'table' %}
+    <div class="table-responsive product-table-wrap">
+      <table class="table table-hover align-middle product-table mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>图片</th>
+            <th>商品</th>
+            <th>设计师</th>
+            <th>年份</th>
+            <th>季度</th>
+            <th>波段</th>
+            <th class="text-end">销售数量</th>
+            <th class="text-end">销售金额</th>
+            <th class="text-end">平均单价</th>
+            <th class="text-end">门店覆盖</th>
+            <th class="text-end">标准售价</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td style="width:88px;">
+                <img class="thumb" src="{{ row.image_url or url_for('product_image', code=row.product_code, color='_') }}" alt="{{ row.product_name }}" loading="lazy" onerror="this.style.display='none'" />
+              </td>
+              <td>
+                <div class="fw-semibold">{{ row.product_name }}</div>
+                <div class="text-muted small">{{ row.product_code }}</div>
+              </td>
+              <td>{{ row.designer_name or 'N/A' }}</td>
+              <td>{{ row.year or 'N/A' }}</td>
+              <td>{{ row.season_name or 'N/A' }}</td>
+              <td>{{ row.wave or 'N/A' }}</td>
+              <td class="text-end">{{ '{:,.0f}'.format(row.sales_qty or 0) }}</td>
+              <td class="text-end">{{ '{:,.2f}'.format(row.sales_amount or 0) }}</td>
+              <td class="text-end">{{ '{:,.2f}'.format(row.average_unit_price or 0) }}</td>
+              <td class="text-end">{{ '{:,.0f}'.format(row.store_coverage or 0) }}</td>
+              <td class="text-end">{{ '{:,.2f}'.format(row.standard_price or 0) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% elif display_mode == 'gallery' %}
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-xxl-3 g-3 product-gallery-grid">
+      {% for row in rows %}
+        {{ render_gallery_product_card(row, localized=True) }}
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="row row-cols-1 row-cols-xxl-2 g-3 product-cards-grid">
+      {% for row in rows %}
+        {{ render_product_card(row, localized=True) }}
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+    <div class="text-muted small">共 {{ total_count }} 条记录</div>
+    <nav aria-label="分页导航">
+      <ul class="pagination mb-0">
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ prev_url }}">上一页</a>
+        </li>
+        {% for item in pagination_links %}
+          {% if item.ellipsis %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% else %}
+            <li class="page-item {% if item.page == page %}active{% endif %}"><a class="page-link" href="{{ item.url }}">{{ item.page }}</a></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ next_url }}">下一页</a>
+        </li>
+      </ul>
+    </nav>
 </section>
 {% endblock %}

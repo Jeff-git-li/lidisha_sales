@@ -27,4 +27,4 @@ RPA export → importer → SQLite data warehouse → query/filter layer → das
 补充：
 - 商品图片保存在 R:\商品部 下的多级子目录中，系统会递归查找。
 - 文件名通常为 商品代码_颜色代码.jpg / .png / .jpeg / .webp / .bmp。
-- 这个说明文档面向内部使用，重点是数据导入、查询和访问路径，不再描述旧的 Top20 单页逻辑。
+- 这个说明文档面向内部使用，重点是数据导入、查询和访问路径，不再描述旧的单页商品分析逻辑。

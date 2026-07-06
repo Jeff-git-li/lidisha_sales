@@ -11,13 +11,17 @@ FILTER_COLUMN_MAP = {
     "store_code": "store_code",
     "store_type_name": "store_type_name",
     "source_file": "source_file",
+    "brand_name": "brand_name",
     "category_name": "category_name",
     "big_category_name": "big_category_name",
+    "series_name": "series_name",
     "year": "year",
     "season_name": "season_name",
     "wave": "wave",
     "designer_name": "designer_name",
     "product_code": "product_code",
+    "color_name": "color_name",
+    "price_band": "price_band",
 }
 
 
@@ -96,6 +100,18 @@ def build_where_clause(filters: Mapping[str, Any] | None, core_only: bool = True
         placeholders = ", ".join(["?"] * len(values))
         clauses.append(f"COALESCE(NULLIF(TRIM({column}), ''), '') IN ({placeholders})")
         params.extend(values)
+
+    search_terms = normalized.get("search", [])
+    if search_terms:
+        search = search_terms[0]
+        if search:
+            search_clauses = [
+                "LOWER(COALESCE(product_code, '')) LIKE ?",
+                "LOWER(COALESCE(product_name, '')) LIKE ?",
+                "LOWER(COALESCE(designer_name, '')) LIKE ?",
+            ]
+            clauses.append("(" + " OR ".join(search_clauses) + ")")
+            params.extend([f"%{search.lower()}%"] * len(search_clauses))
 
     core_clause = build_core_product_filter(core_only)
     if core_clause:

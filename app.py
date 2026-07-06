@@ -34,7 +34,7 @@ from config import (
 from database import get_db_connection
 from logging_config import configure_logging, get_logger
 from queries.dashboard import get_dashboard_kpis
-from queries.top20 import get_top20_products
+from queries.products import get_product_explorer
 from routes.imports import imports_bp
 from routes.insights import insights_bp
 from routes.inventory import inventory_bp
@@ -1172,7 +1172,7 @@ def index():
     ensure_dashboard_data()
     df = DATA
     summary = get_dashboard_kpis(None)
-    top5_products = get_top20_products(top_n=5)
+    top5_products, _ = get_product_explorer(page=1, per_page=5)
     grouped_regions = {member for members in REGION_GROUPS.values() for member in members}
     regions = [
         region
@@ -1340,7 +1340,7 @@ def latest_excel(input_dir: str) -> str:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="BSERP零售Top20 Flask Dashboard")
+    parser = argparse.ArgumentParser(description="BSERP零售 Product Explorer Flask Dashboard")
     parser.add_argument("--input", default=None, help="RPA导出的零售销售分析Excel路径")
     parser.add_argument("--input-dir", default=DEFAULT_INPUT_DIR, help="如果不传--input，则自动读取此文件夹最新xlsx")
     parser.add_argument("--image-root", default=DEFAULT_IMAGE_ROOT, help="商品图片根目录，默认 R:\\商品部")

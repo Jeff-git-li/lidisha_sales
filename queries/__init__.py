@@ -7,4 +7,4 @@ from .retail_queries import (
     get_top_products,
 )
 from .dashboard import get_dashboard_kpis
-from .top20 import get_top20_products
+from .products import EXPLORER_PAGE_SIZE, get_product_explorer, get_product_explorer_options
