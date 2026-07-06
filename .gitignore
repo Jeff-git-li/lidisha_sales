@@ -19,3 +19,5 @@ exports/
 *.db-shm
 *.db-wal
 *.db-journal
+*.log
+scan_result.json
