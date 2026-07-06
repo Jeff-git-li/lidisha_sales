@@ -9,6 +9,8 @@ class ProductPerformance:
     product_code: str
     product_name: str
     image_path: str
+    image_url: str
+    has_image: bool
     year: Any
     season_name: str
     wave: str
@@ -31,6 +33,8 @@ class ProductPerformance:
             product_code=str(row.get("product_code", "") or ""),
             product_name=str(row.get("product_name", "") or ""),
             image_path=str(row.get("image_path", "") or ""),
+            image_url=str(row.get("image_url", "") or ""),
+            has_image=bool(row.get("has_image", False)),
             year=row.get("year"),
             season_name=str(row.get("season_name", "") or ""),
             wave=str(row.get("wave", "") or ""),

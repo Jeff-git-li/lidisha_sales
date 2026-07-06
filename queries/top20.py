@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from assets.asset_service import get_product_image
 from queries.filters import build_where_clause, normalize_filter_values
 from queries.retail_queries import _query_all
 from semantic.product_metrics import ProductPerformance
@@ -83,4 +84,10 @@ def get_top20_products(filters: dict[str, Any] | None = None, top_n: int = 20) -
     LIMIT ?
     """
     rows = _query_all(sql, params + [int(top_n)])
-    return [ProductPerformance.from_query_row(dict(row)) for row in rows]
+    products = []
+    for row in rows:
+        data = dict(row)
+        asset = get_product_image(data.get("product_code", ""))
+        data.update(asset)
+        products.append(ProductPerformance.from_query_row(data))
+    return products
