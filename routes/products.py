@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, abort, render_template, request, url_for
 
 from queries.products import EXPLORER_PAGE_SIZE, get_product_explorer, get_product_explorer_options
+from queries.product_detail import get_product_detail
 
 
 products_bp = Blueprint("products", __name__)
@@ -55,8 +56,14 @@ def _build_query_url(base_params: dict[str, str | int | list[str]], **overrides:
 
 
 @products_bp.route("/products/<product_code>")
-def product_detail_placeholder(product_code: str):
-    abort(501, description=f"Product detail for {product_code} is reserved for a future iteration.")
+def product_detail(product_code: str):
+    detail = get_product_detail(product_code)
+    return render_template(
+        "product_detail.html",
+        active_page="products",
+        page_title="商品详情",
+        detail=detail,
+    )
 
 
 @products_bp.route("/products")

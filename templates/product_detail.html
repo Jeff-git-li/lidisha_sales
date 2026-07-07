@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-card">
+  <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-start gap-3">
+    <div>
+      <div class="text-muted small mb-2">Product Detail</div>
+      <h1 class="mb-2">{{ detail.profile.product_name }}</h1>
+      <div class="text-muted">{{ detail.profile.product_code }}</div>
+    </div>
+    <div class="text-xl-end">
+      <div class="text-muted small">Data Source</div>
+      <div class="fw-semibold">fact_retail_sales</div>
+    </div>
+  </div>
+</section>
+
+<div class="row g-4 mt-0">
+  <div class="col-12 col-xl-5">
+    <section class="page-card mt-4 h-100">
+      <h2 class="h4 mb-3">Product Overview</h2>
+      <div class="row g-3 align-items-start">
+        <div class="col-12">
+          <img class="img-fluid rounded border" src="{{ detail.profile.image_url or '' }}" alt="{{ detail.profile.product_name }}" onerror="this.style.display='none'" />
+        </div>
+        <div class="col-12 col-md-6"><div class="text-muted small">Year</div><div class="fw-semibold">{{ detail.profile.year or 'N/A' }}</div></div>
+        <div class="col-12 col-md-6"><div class="text-muted small">Season</div><div class="fw-semibold">{{ detail.profile.season_name or 'N/A' }}</div></div>
+        <div class="col-12 col-md-6"><div class="text-muted small">Wave</div><div class="fw-semibold">{{ detail.profile.wave or 'N/A' }}</div></div>
+        <div class="col-12 col-md-6"><div class="text-muted small">Designer</div><div class="fw-semibold">{{ detail.profile.designer_name or 'N/A' }}</div></div>
+        <div class="col-12"><div class="text-muted small">Category</div><div class="fw-semibold">{{ detail.profile.category_name or 'N/A' }} · {{ detail.profile.big_category_name or 'N/A' }}</div></div>
+        <div class="col-12"><div class="text-muted small">Brand</div><div class="fw-semibold">{{ detail.profile.brand_name or 'N/A' }}</div></div>
+        <div class="col-12"><div class="text-muted small">Series</div><div class="fw-semibold">{{ detail.profile.series_name or 'N/A' }}</div></div>
+      </div>
+    </section>
+  </div>
+  <div class="col-12 col-xl-7">
+    <section class="page-card mt-4 h-100">
+      <h2 class="h4 mb-3">Business KPIs</h2>
+      <div class="row g-3">
+        <div class="col-6 col-lg-3"><div class="card border"><div class="card-body"><div class="text-muted small">Sales Qty</div><div class="fw-bold fs-5">{{ '{:,.0f}'.format(detail.sales_summary.sales_qty or 0) }}</div></div></div></div>
+        <div class="col-6 col-lg-3"><div class="card border"><div class="card-body"><div class="text-muted small">Sales Amount</div><div class="fw-bold fs-5">{{ '{:,.2f}'.format(detail.sales_summary.sales_amount or 0) }}</div></div></div></div>
+        <div class="col-6 col-lg-3"><div class="card border"><div class="card-body"><div class="text-muted small">Avg Unit Price</div><div class="fw-bold fs-5">{{ '{:,.2f}'.format(detail.sales_summary.average_unit_price or 0) }}</div></div></div></div>
+        <div class="col-6 col-lg-3"><div class="card border"><div class="card-body"><div class="text-muted small">Discount Rate</div><div class="fw-bold fs-5">{{ '{:.2%}'.format(detail.sales_summary.average_discount_rate or 0) }}</div></div></div></div>
+        <div class="col-6 col-lg-3"><div class="card border"><div class="card-body"><div class="text-muted small">Store Coverage</div><div class="fw-bold fs-5">{{ '{:,.0f}'.format(detail.sales_summary.store_count or 0) }}</div></div></div></div>
+        <div class="col-6 col-lg-3"><div class="card border"><div class="card-body"><div class="text-muted small">Colors</div><div class="fw-bold fs-5">{{ '{:,.0f}'.format(detail.sales_summary.color_count or 0) }}</div></div></div></div>
+        <div class="col-6 col-lg-3"><div class="card border"><div class="card-body"><div class="text-muted small">Sizes</div><div class="fw-bold fs-5">{{ '{:,.0f}'.format(detail.sales_summary.size_count or 0) }}</div></div></div></div>
+        <div class="col-6 col-lg-3"><div class="card border"><div class="card-body"><div class="text-muted small">Transactions</div><div class="fw-bold fs-5">{{ '{:,.0f}'.format(detail.sales_summary.transaction_count or 0) }}</div></div></div></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="row g-4 mt-0">
+  <div class="col-12 col-xl-6"><section class="page-card mt-4"><h2 class="h4 mb-3">Sales Trend</h2><div id="productTrendPlaceholder" class="text-muted">Trend visualization placeholder.</div></section></div>
+  <div class="col-12 col-xl-6"><section class="page-card mt-4"><h2 class="h4 mb-3">Color Distribution</h2><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Color</th><th class="text-end">Qty</th><th class="text-end">Amount</th></tr></thead><tbody>{% for item in detail.color_summary.colors %}<tr><td>{{ item.color_name }}</td><td class="text-end">{{ '{:,.0f}'.format(item.sales_qty or 0) }}</td><td class="text-end">{{ '{:,.2f}'.format(item.sales_amount or 0) }}</td></tr>{% endfor %}</tbody></table></div></section></div>
+</div>
+
+<div class="row g-4 mt-0">
+  <div class="col-12 col-xl-6"><section class="page-card mt-4"><h2 class="h4 mb-3">Size Distribution</h2><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Size</th><th class="text-end">Qty</th><th class="text-end">Amount</th></tr></thead><tbody>{% for item in detail.size_summary.sizes %}<tr><td>{{ item.size_name }}</td><td class="text-end">{{ '{:,.0f}'.format(item.sales_qty or 0) }}</td><td class="text-end">{{ '{:,.2f}'.format(item.sales_amount or 0) }}</td></tr>{% endfor %}</tbody></table></div></section></div>
+  <div class="col-12 col-xl-6"><section class="page-card mt-4"><h2 class="h4 mb-3">Region Distribution</h2><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Region</th><th class="text-end">Qty</th><th class="text-end">Amount</th></tr></thead><tbody>{% for item in detail.region_summary.regions %}<tr><td>{{ item.region_name }}</td><td class="text-end">{{ '{:,.0f}'.format(item.sales_qty or 0) }}</td><td class="text-end">{{ '{:,.2f}'.format(item.sales_amount or 0) }}</td></tr>{% endfor %}</tbody></table></div></section></div>
+</div>
+
+<div class="row g-4 mt-0">
+  <div class="col-12 col-xl-6"><section class="page-card mt-4"><h2 class="h4 mb-3">Store Distribution</h2><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Store</th><th>Region</th><th class="text-end">Qty</th><th class="text-end">Amount</th></tr></thead><tbody>{% for item in detail.store_summary.stores %}<tr><td>{{ item.store_name }}</td><td>{{ item.region_name }}</td><td class="text-end">{{ '{:,.0f}'.format(item.sales_qty or 0) }}</td><td class="text-end">{{ '{:,.2f}'.format(item.sales_amount or 0) }}</td></tr>{% endfor %}</tbody></table></div></section></div>
+  <div class="col-12 col-xl-6"><section class="page-card mt-4"><h2 class="h4 mb-3">AI Context Preview</h2><pre class="small bg-light border rounded p-3 mb-0">{{ detail.ai_context.to_dict() | tojson(indent=2) }}</pre></section></div>
+</div>
+{% endblock %}

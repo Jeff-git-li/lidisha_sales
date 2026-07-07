@@ -13,6 +13,7 @@
 <div class="col">
   <article class="card h-100 shadow-sm product-card border-0">
     <div class="product-card-media">
+      <a class="product-card-link" href="{{ url_for('products.product_detail', product_code=product.product_code) }}" aria-label="{{ product.product_name }}">
       {% if image_url %}
       <img
         src="{{ image_url }}"
@@ -26,6 +27,7 @@
         <div class="product-card-fallback-code">{{ product.product_code }}</div>
         <div class="product-card-fallback-text">{{ image_fallback_label }}</div>
       </div>
+      </a>
     </div>
     <div class="card-body product-card-body d-flex flex-column">
       <div class="d-flex justify-content-between align-items-start gap-3">

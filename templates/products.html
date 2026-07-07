@@ -167,15 +167,14 @@
             <th class="text-end">标准售价</th>
           </tr>
         </thead>
-        <tbody>
           {% for row in rows %}
             <tr>
               <td style="width:88px;">
                 <img class="thumb" src="{{ row.image_url or url_for('product_image', code=row.product_code, color='_') }}" alt="{{ row.product_name }}" loading="lazy" onerror="this.style.display='none'" />
               </td>
               <td>
-                <div class="fw-semibold">{{ row.product_name }}</div>
-                <div class="text-muted small">{{ row.product_code }}</div>
+                <div class="fw-semibold"><a class="text-decoration-none" href="{{ url_for('products.product_detail', product_code=row.product_code) }}">{{ row.product_name }}</a></div>
+                <div class="text-muted small"><a class="text-reset text-decoration-none" href="{{ url_for('products.product_detail', product_code=row.product_code) }}">{{ row.product_code }}</a></div>
               </td>
               <td>{{ row.designer_name or 'N/A' }}</td>
               <td>{{ row.year or 'N/A' }}</td>
