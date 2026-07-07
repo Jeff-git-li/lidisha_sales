@@ -4,12 +4,12 @@ from datetime import datetime
 from pathlib import Path
 
 from database import get_db_connection
-from importers.master_data_importer import ensure_sales_table, import_sales_file, ensure_import_log_table, write_import_log
+from importers.master_data_importer import rebuild_sales_table, import_sales_file, ensure_import_log_table, write_import_log
 
 
 def import_sales(path: str | Path, batch_size: int = 10000) -> dict[str, int | float | str]:
     with get_db_connection() as conn:
-        ensure_sales_table(conn)
+        rebuild_sales_table(conn)
         ensure_import_log_table(conn)
         started_at = datetime.now().isoformat(timespec="seconds")
         status = "success"

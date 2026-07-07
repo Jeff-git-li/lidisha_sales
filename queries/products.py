@@ -105,13 +105,19 @@ def _build_product_explorer_cte(filters: dict[str, Any] | None = None) -> tuple[
         SELECT
             f.product_code,
             f.store_code,
+            f.color_code,
             f.color_name,
             f.sale_date,
             f.date_key,
             f.qty,
             f.amount,
+            f.standard_amount,
+            f.standard_price,
             f.unit_price,
+            f.size_code,
             f.size_name,
+            f.document_no,
+            f.document_type,
             p.product_name,
             p.image_path,
             p.year_code AS year,
@@ -124,20 +130,16 @@ def _build_product_explorer_cte(filters: dict[str, Any] | None = None) -> tuple[
             p.category_name,
             p.major_category_name AS big_category_name,
             p.series_name,
-            p.standard_retail_price AS standard_price,
             s.region_name,
             s.channel_code,
             s.store_type_name,
             c.year AS calendar_year,
             c.month AS calendar_month,
             c.day AS calendar_day,
-            {_price_band_sql()} AS price_band,
+            {_price_band_sql('f.standard_price')} AS price_band,
             {_season_sort_sql()} AS season_sort,
             {_wave_sort_sql()} AS wave_sort,
-            COALESCE(
-                NULLIF(f.amount, 0),
-                CASE WHEN f.unit_price IS NOT NULL AND f.unit_price != 0 THEN f.qty * f.unit_price ELSE 0 END
-            ) AS effective_amount
+            COALESCE(NULLIF(f.amount, 0), 0) AS effective_amount
         FROM fact_retail_sales f
         LEFT JOIN dim_product p ON f.product_code = p.product_code
         LEFT JOIN dim_store s ON f.store_code = s.store_code

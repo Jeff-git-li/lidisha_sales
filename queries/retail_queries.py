@@ -15,12 +15,18 @@ WITH joined AS (
         f.product_code,
         f.store_code,
         s.store_name,
+        f.color_code,
         f.color_name,
+        f.size_code,
         f.size_name,
         f.qty,
         f.amount,
+        f.standard_amount,
+        f.standard_price,
         f.unit_price,
         f.discount_rate,
+        f.document_no,
+        f.document_type,
         f.source_file,
         f.source_row_hash,
         f.load_batch_id,
@@ -41,13 +47,7 @@ WITH joined AS (
         c.year AS calendar_year,
         c.month AS calendar_month,
         c.day AS calendar_day,
-        COALESCE(
-            NULLIF(f.amount, 0),
-            CASE
-                WHEN f.unit_price IS NOT NULL AND f.unit_price != 0 THEN f.qty * f.unit_price
-                ELSE 0
-            END
-        ) AS effective_amount
+        COALESCE(NULLIF(f.amount, 0), 0) AS effective_amount
     FROM fact_retail_sales f
     {build_dimension_joins()}
 )

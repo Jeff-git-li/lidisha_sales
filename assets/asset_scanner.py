@@ -157,6 +157,15 @@ def verify_assets(image_root: str = DEFAULT_IMAGE_ROOT) -> dict[str, int | float
     if not root_path.exists():
         raise FileNotFoundError(f"Image root not found: {root_path}")
 
+    with get_db_connection() as conn:
+        ensure_asset_table(conn)
+        dim_asset_rows = int(conn.execute("SELECT COUNT(*) AS count FROM dim_asset").fetchone()["count"])
+        db_indexed_assets = int(
+            conn.execute(
+                "SELECT COUNT(*) AS count FROM dim_asset WHERE asset_type = 'product_image'"
+            ).fetchone()["count"]
+        )
+
     indexed_assets = 0
     duplicate_filenames = 0
     invalid_filenames = 0
@@ -179,15 +188,6 @@ def verify_assets(image_root: str = DEFAULT_IMAGE_ROOT) -> dict[str, int | float
                 continue
             seen_keys.add(storage_key)
             indexed_assets += 1
-
-    with get_db_connection() as conn:
-        ensure_asset_table(conn)
-        dim_asset_rows = int(conn.execute("SELECT COUNT(*) AS count FROM dim_asset").fetchone()["count"])
-        db_indexed_assets = int(
-            conn.execute(
-                "SELECT COUNT(*) AS count FROM dim_asset WHERE asset_type = 'product_image'"
-            ).fetchone()["count"]
-        )
 
     elapsed_seconds = round(time.perf_counter() - started_at, 2)
     return {

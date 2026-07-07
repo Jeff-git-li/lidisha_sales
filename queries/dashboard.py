@@ -21,9 +21,6 @@ def _to_query_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
 def get_dashboard_kpis(filters: dict[str, Any] | None = None, core_only: bool = True) -> dict[str, Any]:
     query_filters = _to_query_filters(filters)
     where_sql, params = build_where_clause(query_filters, core_only)
-    if not query_filters.get("source_file"):
-        where_sql += " AND source_file LIKE ?" if where_sql else " WHERE source_file LIKE ?"
-        params.append("%零售销售%")
     sql = f"""
     {JOINED_CTE}
     SELECT

@@ -2,10 +2,10 @@
 {% from "components/product_card.html" import render_product_card %}
 
 {% block content %}
-  <section class="page-card">
+  <section class="page-card home-hero">
     <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3">
       <div>
-        <div class="text-muted small mb-2">昨日经营简报</div>
+        <div class="text-muted small mb-2">Yesterday Summary</div>
         <h1 class="mb-2">经营驾驶舱</h1>
         <p class="mb-0 text-muted">面向管理层的晨会简报，聚焦昨日销售、重点商品、区域表现和风险提醒。</p>
       </div>
@@ -17,20 +17,20 @@
   </section>
 
   <section class="page-card mt-4">
-    <div class="page-header">
+    <div class="home-section-title">
       <div>
         <h2 class="h4 mb-1">核心指标</h2>
-        <p class="mb-0">使用 SQLite KPI 查询结果生成。</p>
+        <p class="mb-0">与商品分析共享同一套筛选和聚合逻辑。</p>
       </div>
       <button class="btn btn-outline-primary btn-sm" onclick="reloadData()">刷新数据</button>
     </div>
     <div class="row g-3">
       {% for metric in home_metrics %}
       <div class="col-12 col-md-6 col-xxl-3">
-        <div class="card h-100 shadow-sm border-0">
+        <div class="home-kpi-card">
           <div class="card-body">
-            <div class="text-muted small">{{ metric.label }}</div>
-            <div class="display-6 fw-semibold mt-2 mb-0">{{ '{:,.0f}'.format(metric.value or 0) if metric.label != '销售金额' else '{:,.2f}'.format(metric.value or 0) }}</div>
+            <div class="home-kpi-label">{{ metric.label }}</div>
+            <div class="home-kpi-value mt-2">{{ '{:,.0f}'.format(metric.value or 0) if metric.label != '销售金额' else '{:,.2f}'.format(metric.value or 0) }}</div>
           </div>
         </div>
       </div>
@@ -38,29 +38,14 @@
     </div>
   </section>
 
-  <div class="row g-4 mt-0">
-    <div class="col-xl-8">
-      <section class="page-card h-100 mt-4">
-        <h2 class="h4 mb-3">昨日经营简报 / AI 摘要</h2>
-        <p class="mb-0">AI 摘要将在后续版本基于昨日销售、商品、区域和库存数据自动生成。</p>
-      </section>
-    </div>
-    <div class="col-xl-4">
-      <section class="page-card h-100 mt-4">
-        <h2 class="h4 mb-3">异常提醒</h2>
-        <p class="mb-0">暂无异常提醒。后续将自动识别销售下滑、缺货、滞销和数据导入异常。</p>
-      </section>
-    </div>
-  </div>
-
   <section class="page-card mt-4">
-    <div class="page-header">
+    <div class="home-section-title">
       <div>
         <h2 class="h4 mb-1">爆款 Top 5</h2>
-        <p class="mb-0">使用语义层产品对象渲染。</p>
+        <p class="mb-0">基于商品分析卡片样式，突出重点商品概览。</p>
       </div>
     </div>
-    <div class="row row-cols-1 row-cols-lg-2 g-3">
+    <div class="row row-cols-1 row-cols-xxl-2 g-3 home-top5-grid">
       {% for row in top5_products %}
         {{ render_product_card(row, localized=True) }}
       {% endfor %}
@@ -69,21 +54,32 @@
 
   <div class="row g-4 mt-0">
     <div class="col-xl-6">
-      <section class="page-card h-100 mt-4">
-        <h2 class="h4 mb-3">区域表现</h2>
-        <p class="mb-0">区域表现将在下一阶段接入 SQLite 区域分析查询。</p>
+      <section class="page-card h-100 mt-4 home-placeholder-card">
+        <div class="card-body">
+          <h3 class="h5 mb-2">AI Summary Placeholder</h3>
+          <p class="mb-0 text-muted">后续将基于昨日销售、重点商品和区域变化自动生成管理层摘要。</p>
+        </div>
       </section>
     </div>
     <div class="col-xl-6">
-      <section class="page-card h-100 mt-4">
-        <h2 class="h4 mb-3">说明</h2>
-        <p class="mb-0">本页保留旧版详细经营分析作为下方折叠内容，便于继续过渡到新的首页信息架构。</p>
+      <section class="page-card h-100 mt-4 home-placeholder-card">
+        <div class="card-body">
+          <h3 class="h5 mb-2">Region Summary Placeholder</h3>
+          <p class="mb-0 text-muted">后续将在此呈现北区、中区、南区和全国的简要对比。</p>
+        </div>
       </section>
     </div>
   </div>
 
-  <details class="page-card mt-4">
-    <summary class="h4 mb-0">详细经营分析</summary>
+  <section class="page-card mt-4 home-placeholder-card">
+    <div class="card-body">
+      <h3 class="h5 mb-2">Alerts Placeholder</h3>
+      <p class="mb-0 text-muted">后续将自动识别销售下滑、缺货、滞销和数据导入异常。</p>
+    </div>
+  </section>
+
+  <details class="page-card mt-4 home-detail-collapse">
+    <summary class="d-flex align-items-center gap-3 h4 mb-0">Detailed Analysis</summary>
     <div class="mt-4">
       <section class="filters">
         <label>日期范围
@@ -143,14 +139,14 @@
 
       <main class="grid">
         <section class="card wide">
-          <div class="card-title"><h2>销售视图</h2><span>KU + 2 默认，可按年份和季节切换</span></div>
+          <div class="card-title"><h2>销售视图</h2><span>按年份、季节和波段切换</span></div>
           <div class="tabs">
             <button class="tab-btn active" data-tab-target="trendTab">日销售趋势</button>
-            <button class="tab-btn" data-tab-target="globalTopTab">款号 Top</button>
-            <button class="tab-btn" data-tab-target="colorTopTab">款色 Top</button>
+            <button class="tab-btn" data-tab-target="globalTopTab">商品 Top</button>
+            <button class="tab-btn" data-tab-target="colorTopTab">颜色 Top</button>
             <button class="tab-btn" data-tab-target="distributionTab">销量分布</button>
             <button class="tab-btn" data-tab-target="regionTopTab">区域排行</button>
-            <button class="tab-btn" data-tab-target="matrixTab">爆款矩阵</button>
+            <button class="tab-btn" data-tab-target="matrixTab">商品矩阵</button>
             <button class="tab-btn" data-tab-target="slowMovingTab">滞销品</button>
           </div>
           <div id="trendTab" class="tab-panel active">

@@ -269,11 +269,11 @@ def year_option_rows(df: pd.DataFrame) -> list[dict]:
     for prefix, year in YEAR_PREFIX_MAP.items():
         if prefix in df.get("年份代号", pd.Series(dtype=str)).dropna().unique().tolist() or prefix == DEFAULT_YEAR_PREFIX:
             seen.add(prefix)
-            options.append({"value": prefix, "label": f"{prefix}({year})"})
+            options.append({"value": prefix, "label": f"{year}" if year else prefix})
     for prefix in df.get("年份代号", pd.Series(dtype=str)).dropna().unique().tolist():
         if prefix and prefix not in seen:
             year = YEAR_PREFIX_MAP.get(prefix)
-            options.append({"value": prefix, "label": f"{prefix}({year})" if year else prefix})
+            options.append({"value": prefix, "label": f"{year}" if year else prefix})
     return options
 
 
@@ -1353,7 +1353,13 @@ def parse_args():
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         APP_CONFIG.update({"excel_path": None, "inventory_path": None, "input_dir": DEFAULT_INPUT_DIR, "image_root": DEFAULT_IMAGE_ROOT, "top_n": DEFAULT_TOP_N})
-        initial_result = reload_dashboard_data(trigger="startup")
+        try:
+            initial_result = reload_dashboard_data(trigger="startup")
+        except sqlite3.DatabaseError as exc:
+            DATA = pd.DataFrame()
+            INVENTORY_DATA = pd.DataFrame()
+            initial_result = {"rows": 0, "images": 0, "image_index_ready": False, "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+            logger.warning("启动时数据加载被跳过：%s", exc)
         start_auto_refresh_scheduler()
         logger.info("开发模式启动")
         logger.info("销售记录: %s 行；图片索引: %s 张；图片目录: %s", f"{initial_result['rows']:,}", f"{initial_result['images']:,}", DEFAULT_IMAGE_ROOT)
@@ -1363,7 +1369,13 @@ if __name__ == "__main__":
         args = parse_args()
         excel_path = args.input or latest_excel(args.input_dir)
         APP_CONFIG.update({"excel_path": excel_path if args.input else None, "inventory_path": None, "input_dir": args.input_dir, "image_root": args.image_root, "top_n": args.top_n})
-        initial_result = reload_dashboard_data(trigger="startup")
+        try:
+            initial_result = reload_dashboard_data(trigger="startup")
+        except sqlite3.DatabaseError as exc:
+            DATA = pd.DataFrame()
+            INVENTORY_DATA = pd.DataFrame()
+            initial_result = {"rows": 0, "images": 0, "image_index_ready": False, "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+            logger.warning("启动时数据加载被跳过：%s", exc)
         start_auto_refresh_scheduler()
         logger.info("已加载Excel: %s", excel_path)
         logger.info("销售记录: %s 行；图片索引: %s 张；图片目录: %s", f"{initial_result['rows']:,}", f"{initial_result['images']:,}", args.image_root)

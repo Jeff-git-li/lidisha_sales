@@ -158,8 +158,44 @@ TABLE_CONFLICT_TARGETS = {
 }
 
 SALES_HEADER_ROW = 14
-SALES_REQUIRED_COLUMNS = ["日期", "商品代码", "商店代码", "颜色名称", "尺码名称", "数量"]
-SALES_OPTIONAL_COLUMNS = ["金额", "成交价", "折扣"]
+SALES_REQUIRED_COLUMNS = [
+    "商品代码",
+    "颜色代码",
+    "颜色名称",
+    "尺码代码",
+    "尺码名称",
+    "商店代码",
+    "日期",
+    "单据编号",
+    "单据类型",
+    "数量",
+    "选定金额",
+    "金额",
+]
+FACT_RETAIL_SALES_COLUMNS = [
+    "id",
+    "sale_date",
+    "date_key",
+    "product_code",
+    "color_code",
+    "color_name",
+    "size_code",
+    "size_name",
+    "store_code",
+    "document_no",
+    "document_type",
+    "qty",
+    "standard_amount",
+    "amount",
+    "standard_price",
+    "unit_price",
+    "discount_rate",
+    "source_file",
+    "source_row_hash",
+    "load_batch_id",
+    "import_run_time",
+    "imported_at",
+]
 
 
 @dataclass(frozen=True)
@@ -176,7 +212,7 @@ def _text(value) -> str:
 
 
 def _float(value):
-    text = _text(value)
+    text = _text(value).replace(",", "")
     if not text:
         return None
     try:
@@ -939,6 +975,11 @@ def _next_batch_id(conn, run_date: str) -> str:
     return f"{prefix}_{suffix:03d}"
 
 
+def rebuild_sales_table(conn) -> None:
+    conn.execute("DROP TABLE IF EXISTS fact_retail_sales")
+    ensure_sales_table(conn)
+
+
 def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[str, int | float | str]:
     ensure_sales_table(conn)
     source_path = str(Path(path).resolve())
@@ -964,20 +1005,19 @@ def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[s
         rows_read += 1
         sale_date = _date(record.get("日期"))
         product_code = _text(record.get("商品代码"))
-        store_code = _text(record.get("商店代码"))
-        store_name = _text(record.get("商店名称"))
-        if not store_code and store_name:
-            store_code = store_name_to_code.get(store_name, store_name)
-        if not store_name and store_code:
-            store_name = store_code_to_name.get(store_code, "")
+        color_code = _text(record.get("颜色代码"))
         color_name = _text(record.get("颜色名称"))
+        size_code = _text(record.get("尺码代码"))
         size_name = _text(record.get("尺码名称"))
+        store_code = _text(record.get("商店代码"))
+        document_no = _text(record.get("单据编号"))
+        document_type = _text(record.get("单据类型"))
         qty = _float(record.get("数量")) or 0.0
-        amount = _float(record.get("金额"))
-        unit_price = _float(record.get("成交价"))
-        if unit_price is None:
-            unit_price = _float(record.get("选定价"))
-        discount_rate = _float(record.get("折扣"))
+        standard_amount = _float(record.get("选定金额")) or 0.0
+        amount = _float(record.get("金额")) or 0.0
+        standard_price = standard_amount / qty if qty else 0.0
+        unit_price = amount / qty if qty else 0.0
+        discount_rate = (amount / standard_amount) if standard_amount else 0.0
 
         if product_code and product_code not in product_codes:
             unknown_product_rows += 1
@@ -990,16 +1030,36 @@ def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[s
             continue
 
         date_key = sale_date.replace("-", "")
-        row_hash = _safe_hash([sale_date, product_code, store_code, store_name, color_name, size_name, str(qty), "" if amount is None else str(amount), source_path])
+        row_hash = _safe_hash([
+            sale_date,
+            product_code,
+            color_code,
+            color_name,
+            size_code,
+            size_name,
+            store_code,
+            document_no,
+            document_type,
+            str(qty),
+            str(standard_amount),
+            str(amount),
+            source_path,
+        ])
         batch_rows.append((
             sale_date,
             date_key,
             product_code,
-            store_code,
+            color_code,
             color_name,
+            size_code,
             size_name,
+            store_code,
+            document_no,
+            document_type,
             qty,
+            standard_amount,
             amount,
+            standard_price,
             unit_price,
             discount_rate,
             source_path,
@@ -1044,16 +1104,84 @@ def _flush_sales_rows(conn, rows: list[tuple]) -> int:
     conn.executemany(
         """
         INSERT INTO fact_retail_sales(
-            sale_date, date_key, product_code, store_code, color_name, size_name,
-            qty, amount, unit_price, discount_rate, source_file, source_row_hash,
+            sale_date, date_key, product_code, color_code, color_name, size_code, size_name,
+            store_code, document_no, document_type, qty, standard_amount, amount,
+            standard_price, unit_price, discount_rate, source_file, source_row_hash,
             load_batch_id, import_run_time, imported_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(source_row_hash) DO NOTHING
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_row_hash) DO UPDATE SET
+            sale_date=excluded.sale_date,
+            date_key=excluded.date_key,
+            product_code=excluded.product_code,
+            color_code=excluded.color_code,
+            color_name=excluded.color_name,
+            size_code=excluded.size_code,
+            size_name=excluded.size_name,
+            store_code=excluded.store_code,
+            document_no=excluded.document_no,
+            document_type=excluded.document_type,
+            qty=excluded.qty,
+            standard_amount=excluded.standard_amount,
+            amount=excluded.amount,
+            standard_price=excluded.standard_price,
+            unit_price=excluded.unit_price,
+            discount_rate=excluded.discount_rate,
+            source_file=excluded.source_file,
+            load_batch_id=excluded.load_batch_id,
+            import_run_time=excluded.import_run_time,
+            imported_at=excluded.imported_at
         """,
         rows,
     )
     inserted = conn.total_changes - before
     return inserted
+
+
+def ensure_sales_table(conn) -> None:
+    desired_columns = FACT_RETAIL_SALES_COLUMNS
+    existing_columns = _existing_columns(conn, "fact_retail_sales")
+    if existing_columns and existing_columns != desired_columns:
+        conn.execute("DROP TABLE IF EXISTS fact_retail_sales")
+        existing_columns = []
+    if not existing_columns:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS fact_retail_sales (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_date TEXT NOT NULL,
+                date_key TEXT NOT NULL,
+                product_code TEXT NOT NULL,
+                color_code TEXT NOT NULL,
+                color_name TEXT,
+                size_code TEXT NOT NULL,
+                size_name TEXT,
+                store_code TEXT NOT NULL,
+                document_no TEXT NOT NULL,
+                document_type TEXT NOT NULL,
+                qty REAL NOT NULL,
+                standard_amount REAL NOT NULL,
+                amount REAL NOT NULL,
+                standard_price REAL NOT NULL,
+                unit_price REAL NOT NULL,
+                discount_rate REAL,
+                source_file TEXT NOT NULL,
+                source_row_hash TEXT NOT NULL,
+                load_batch_id TEXT NOT NULL,
+                import_run_time TEXT NOT NULL,
+                imported_at TEXT NOT NULL,
+                UNIQUE (source_row_hash)
+            );
+            CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_sale_date ON fact_retail_sales(sale_date);
+            CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_date_key ON fact_retail_sales(date_key);
+            CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_product_code ON fact_retail_sales(product_code);
+            CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_store_code ON fact_retail_sales(store_code);
+            CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_product_code_sale_date ON fact_retail_sales(product_code, sale_date);
+            CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_store_code_sale_date ON fact_retail_sales(store_code, sale_date);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fact_retail_sales_source_row_hash ON fact_retail_sales(source_row_hash);
+            CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_batch_id ON fact_retail_sales(load_batch_id);
+            """
+        )
+    ensure_import_log_table(conn)
 
 
 def table_counts(conn) -> dict[str, int]:
