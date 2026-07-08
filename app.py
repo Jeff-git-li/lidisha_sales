@@ -33,10 +33,7 @@ from config import (
 )
 from database import get_db_connection
 from logging_config import configure_logging, get_logger
-from queries.dashboard import get_dashboard_kpis
-from queries.home import get_home_dashboard, get_home_options
-from queries.products import get_product_explorer
-from ai.executive_summary import generate_executive_summary
+from queries.home import get_home_dashboard
 from routes.imports import imports_bp
 from routes.insights import insights_bp
 from routes.inventory import inventory_bp
@@ -1178,32 +1175,11 @@ def get_latest_update_label() -> str:
 
 @app.route("/")
 def index():
-    home_data = get_home_dashboard(top_n=1)
-    home_options = get_home_options()
-    meta = home_data["meta"]
-    executive_brief = generate_executive_summary()
-    regions = [option["value"] for option in home_options.get("region_options", [])]
-    categories = [option["value"] for option in home_options.get("category_options", [])]
-    stores = [option["value"] for option in home_options.get("store_options", [])]
-    year_options = home_options.get("year_options", [])
-    season_options = home_options.get("season_options", [])
-    wave_options = home_options.get("wave_options", [])
     return render_template(
         "index.html",
         page_title="经营驾驶舱",
         active_page="home",
-        latest_update=meta.get("date_max") or "暂无更新时间",
-        executive_brief=executive_brief,
-        regions=regions,
-        categories=categories,
-        stores=stores,
-        year_options=year_options,
-        season_options=season_options,
-        wave_options=wave_options,
-        default_year_prefix=DEFAULT_YEAR_PREFIX,
-        default_season_code=DEFAULT_SEASON_CODE,
-        date_min=meta.get("date_min") or "",
-        date_max=meta.get("date_max") or "",
+        latest_update=get_latest_update_label() or "暂无更新时间",
         image_count=len(IMAGE_INDEX),
     )
 

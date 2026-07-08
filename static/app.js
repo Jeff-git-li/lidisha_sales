@@ -15,19 +15,9 @@ function formatDeltaSmart(value) {
   const magnitude = `${Math.abs(value).toFixed(1)}%`
   return sign ? `${sign}${magnitude}` : magnitude
 }
-function getExecutiveBriefSeed() {
-  const el = document.getElementById('executiveBriefSeed') || document.getElementById('homeAiBrief')
-  return el ? el.textContent || '' : ''
-}
-function getExecutiveDiscountRate() {
-  const seed = getExecutiveBriefSeed()
-  const parsed = parseAverageDiscountFromBrief(seed)
-  return Number.isFinite(parsed) ? parsed : null
-}
-function parseAverageDiscountFromBrief(seed) {
-  const match = String(seed || '').match(/平均折扣率[:：]\s*([0-9.]+)%/)
-  return match ? Number(match[1]) / 100 : null
-}
+function getExecutiveBriefSeed() { return '' }
+function getExecutiveDiscountRate() { return null }
+function parseAverageDiscountFromBrief(seed) { return null }
 function previousDateText(dateText) {
   if (!dateText) return ''
   const value = new Date(`${dateText}T00:00:00`)
@@ -69,19 +59,19 @@ function safeDate(value) {
 function imgTag(url) { return `<img class="thumb" src="${url}" alt="产品图片" onerror="this.style.display='none'" onclick="openImagePreview('${url}')">` }
 function openImagePreview(url) { const modal = document.getElementById('imageModal'); const img = document.getElementById('imageModalImg'); if (!modal || !img) return; img.src = url; modal.classList.add('open') }
 function closeImagePreview() { const modal = document.getElementById('imageModal'); const img = document.getElementById('imageModalImg'); if (!modal || !img) return; modal.classList.remove('open'); img.src = '' }
-function syncDateInputs() { const preset = document.getElementById('datePreset').value; const disabled = preset !== 'custom'; document.getElementById('startDate').disabled = disabled; document.getElementById('endDate').disabled = disabled }
-function selectedValues(id) { return Array.from(document.getElementById(id).selectedOptions).map(option => option.value).filter(Boolean) }
-function setSelectedValues(id, values) { const selected = new Set(values || []); Array.from(document.getElementById(id).options).forEach(option => { option.selected = selected.has(option.value) }) }
+function syncDateInputs() { const presetEl = document.getElementById('datePreset'); const startEl = document.getElementById('startDate'); const endEl = document.getElementById('endDate'); if (!presetEl || !startEl || !endEl) return; const disabled = presetEl.value !== 'custom'; startEl.disabled = disabled; endEl.disabled = disabled }
+function selectedValues(id) { const el = document.getElementById(id); return el ? Array.from(el.selectedOptions).map(option => option.value).filter(Boolean) : [] }
+function setSelectedValues(id, values) { const select = document.getElementById(id); if (!select) return; const selected = new Set(values || []); Array.from(select.options).forEach(option => { option.selected = selected.has(option.value) }) }
 function initTabs() { document.querySelectorAll('.tab-btn').forEach(btn => { btn.addEventListener('click', () => { const target = btn.dataset.tabTarget; const group = btn.parentElement; group.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn)); const container = group.parentElement; container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === target)); }); }); }
 function renderHomeKpis(summary, previousSummary) {
   const container = document.getElementById('homeKpiGrid')
   if (!container) return
   const discountFromBrief = getExecutiveDiscountRate() ?? parseAverageDiscountFromBrief(getExecutiveBriefSeed())
   const metrics = [
-    { label: '销售额', icon: 'bi-currency-yen', value: formatCurrencySmart(summary.总销售额), delta: previousSummary ? trendLabel(toNumber(summary.总销售额), toNumber(previousSummary.总销售额)) : '' },
-    { label: '销售件数', icon: 'bi-graph-up', value: formatCountSmart(summary.总销量, '件'), delta: previousSummary ? trendLabel(toNumber(summary.总销量), toNumber(previousSummary.总销量)) : '' },
-    { label: '平均折扣率', icon: 'bi-stars', value: formatRateSmart(discountFromBrief ?? summary.average_discount_rate ?? 0), delta: '' },
-    { label: '销售门店数', icon: 'bi-shop', value: formatCountSmart(summary.商店数, '家'), delta: '' },
+    { label: '销售金额', icon: 'bi-currency-yen', value: formatCurrencySmart(summary.总销售额), delta: previousSummary ? trendLabel(toNumber(summary.总销售额), toNumber(previousSummary.总销售额)) : '' },
+    { label: '销售数量', icon: 'bi-bag-check', value: formatCountSmart(summary.总销量, '件'), delta: previousSummary ? trendLabel(toNumber(summary.总销量), toNumber(previousSummary.总销量)) : '' },
+    { label: '平均折扣', icon: 'bi-percent', value: formatRateSmart(discountFromBrief ?? summary.average_discount_rate ?? 0), delta: '' },
+    { label: '活跃门店', icon: 'bi-shop', value: formatCountSmart(summary.商店数, '家'), delta: '' },
   ]
   container.innerHTML = metrics.map(metric => `
     <article class="home-kpi-card">
@@ -99,49 +89,64 @@ function renderHomeKpis(summary, previousSummary) {
 function renderHomeAiBrief(summary, previousSummary, currentRows, previousRows, regionRows) {
   const container = document.getElementById('homeAiBrief')
   if (!container) return
-  const discountRate = getExecutiveDiscountRate()
   const previousAmount = previousSummary ? toNumber(previousSummary.总销售额) : 0
   const currentAmount = toNumber(summary.总销售额)
   const amountDelta = previousAmount ? ((currentAmount - previousAmount) / previousAmount) * 100 : null
-  const previousQty = previousSummary ? toNumber(previousSummary.总销量) : 0
-  const currentQty = toNumber(summary.总销量)
   const previousMap = buildProductTrendMap(previousRows)
   const topProduct = currentRows && currentRows.length ? currentRows[0] : null
   const topProductCode = topProduct ? (topProduct.商品代码 || topProduct.product_code || '') : ''
   const topProductName = topProduct ? (topProduct.商品名称 || topProduct.product_name || '') : ''
   const topProductAmount = topProduct ? formatCurrencySmart(toNumber(topProduct.销售额 ?? topProduct.sales_amount)) : '暂无'
   const regions = Array.isArray(regionRows) ? regionRows.slice(0, 4) : []
-  const topRegion = regions.length ? regions[0] : null
+  const bestRegion = regions.length ? regions[0] : null
   const weakestRegion = regions.length ? regions[regions.length - 1] : null
-  const currentDiscount = discountRate ?? averageDiscountRateFromRows(currentRows)
+  const bestRegionName = bestRegion ? (bestRegion.区域名称 || bestRegion.region_name || '全国') : '全国'
+  const worstRegionName = weakestRegion ? (weakestRegion.区域名称 || weakestRegion.region_name || '末位区域') : '末位区域'
   const trendText = topProductCode && previousMap.has(topProductCode)
     ? trendLabel(toNumber(topProduct.销售额 ?? topProduct.sales_amount), toNumber(previousMap.get(topProductCode).销售额 ?? previousMap.get(topProductCode).sales_amount))
     : ''
-  const briefItems = [
-    `昨日销售额${formatCurrencySmart(currentAmount)}${amountDelta === null ? '' : `，较前日${formatDeltaSmart(amountDelta)}`}。`,
-    `销售件数${formatCountSmart(currentQty, '件')}，销售门店${formatCountSmart(summary.商店数, '家')}，平均折扣率${formatRateSmart(currentDiscount)}。`,
-  ]
-  if (topProductCode) briefItems.push(`主要增长来自${topProductName}（${topProductCode}），销售额${topProductAmount}。`)
-  if (topProductCode && trendText) briefItems.push(`冠军商品较前日${trendText}，建议继续补货。`)
-  if (topRegion) {
-    briefItems.push(`重点区域${topRegion.区域名称 || topRegion.region_name || '全国'}领先；${weakestRegion && weakestRegion !== topRegion ? `${weakestRegion.区域名称 || weakestRegion.region_name || '末位区域'}需要关注库存与折扣。` : '保持现有投放节奏。'}`)
-  }
-  briefItems.push('建议继续保障畅销款补货，并关注末位区域库存与折扣策略。')
-  const bullets = briefItems.slice(0, 5).map(text => `<li>${text}</li>`).join('')
+  const summaryLine = `昨日销售${formatCurrencySmart(currentAmount)}${amountDelta === null ? '' : `，较前日${formatDeltaSmart(amountDelta)}`}。`
+  const actionLine = topProductCode
+    ? `建议优先补货 ${topProductName}（${topProductCode}），并关注 ${bestRegionName} 的持续表现。`
+    : '建议优先关注高动销商品补货，并继续跟踪重点区域表现。'
+  const bullets = [
+    `销售件数 ${formatCountSmart(toNumber(summary.总销量), '件')}，活跃门店 ${formatCountSmart(summary.商店数, '家')}。`,
+    topProductCode ? `最佳商品为 ${topProductName}（${topProductCode}），销售额 ${topProductAmount}${trendText ? `，较前日${trendText}` : ''}。` : '暂无足够数据识别最佳商品。',
+    `建议关注 ${worstRegionName} 的库存和折扣。`,
+  ].map(text => `<li>${text}</li>`).join('')
   container.classList.remove('home-ai-skeleton')
-  container.innerHTML = `<div class="home-ai-lead">昨日经营节奏保持稳健，重点关注销量、冠军款和区域变化。</div><ul class="home-ai-bullets">${bullets}</ul>`
+  container.innerHTML = `<div class="home-ai-summary">${summaryLine}</div><div class="home-ai-summary">${actionLine}</div><ul class="home-ai-bullets">${bullets}</ul>`
 }
 function renderHomeRegionBrief(regionRows, previousRegionRows) {
   const container = document.getElementById('homeRegionBrief')
   if (!container) return
-  const current = (regionRows || []).slice(0, 4)
+  const current = Array.isArray(regionRows) ? regionRows : []
   if (!current.length) {
     container.innerHTML = '<div class="home-ai-empty">暂无区域数据</div>'
     return
   }
   const previous = Array.isArray(previousRegionRows) ? previousRegionRows : []
   container.classList.remove('home-ai-skeleton')
-  container.innerHTML = current.map((row, index) => {
+  const best = current[0] || null
+  const growth = current.slice().sort((a, b) => {
+    const currentDelta = toNumber(a.销售额 ?? a.sales_amount) - toNumber((previous.find(item => (item.区域名称 || item.region_name || '') === (a.区域名称 || a.region_name || '')) || {}).销售额 ?? (previous.find(item => (item.区域名称 || item.region_name || '') === (a.区域名称 || a.region_name || '')) || {}).sales_amount)
+    const otherDelta = toNumber(b.销售额 ?? b.sales_amount) - toNumber((previous.find(item => (item.区域名称 || item.region_name || '') === (b.区域名称 || b.region_name || '')) || {}).销售额 ?? (previous.find(item => (item.区域名称 || item.region_name || '') === (b.区域名称 || b.region_name || '')) || {}).sales_amount)
+    return otherDelta - currentDelta
+  })[0] || null
+  const decline = current.slice().sort((a, b) => {
+    const currentDelta = toNumber(a.销售额 ?? a.sales_amount) - toNumber((previous.find(item => (item.区域名称 || item.region_name || '') === (a.区域名称 || a.region_name || '')) || {}).销售额 ?? (previous.find(item => (item.区域名称 || item.region_name || '') === (a.区域名称 || a.region_name || '')) || {}).sales_amount)
+    const otherDelta = toNumber(b.销售额 ?? b.sales_amount) - toNumber((previous.find(item => (item.区域名称 || item.region_name || '') === (b.区域名称 || b.region_name || '')) || {}).销售额 ?? (previous.find(item => (item.区域名称 || item.region_name || '') === (b.区域名称 || b.region_name || '')) || {}).sales_amount)
+    return currentDelta - otherDelta
+  })[0] || null
+  const attention = current[current.length - 1] || null
+  const cards = [
+    { title: '最佳区域', row: best },
+    { title: '增长最快', row: growth },
+    { title: '下滑最大', row: decline },
+    { title: '需要关注', row: attention },
+  ]
+  container.innerHTML = cards.map(card => {
+    const row = card.row || {}
     const name = row.区域名称 || row.region_name || '区域'
     const sales = toNumber(row.销售额 ?? row.sales_amount)
     const qty = toNumber(row.销量 ?? row.sales_qty)
@@ -151,7 +156,7 @@ function renderHomeRegionBrief(regionRows, previousRegionRows) {
     const trendIcon = delta.startsWith('↓') ? 'bi-arrow-down-short' : 'bi-arrow-up-short'
     return `
       <article class="home-region-card">
-        <div class="home-region-label">${index === 0 ? '领先区域' : index === current.length - 1 ? '关注区域' : '重点区域'}</div>
+        <div class="home-region-label">${card.title}</div>
         <div class="home-region-name">${name}</div>
         <div class="home-region-amount">${formatCurrencySmart(sales)}</div>
         <div class="home-region-qty">${formatCountSmart(qty, '件')}</div>
@@ -186,22 +191,21 @@ function renderHomeTop5(rows, previousRows) {
       : ''
     return `
       <article class="home-top5-card">
-        <a class="home-top5-card-link" href="/products/${code}">
-          <div class="home-top5-media">
-            ${imageMarkup}
-            <div class="home-top5-fallback${imageUrl ? ' d-none' : ''}">
-              <i class="bi bi-image"></i>
-              <div>${code || '暂无图片'}</div>
-            </div>
+        <div class="home-top5-media">
+          ${imageMarkup}
+          <div class="home-top5-fallback${imageUrl ? ' d-none' : ''}">
+            <i class="bi bi-image"></i>
+            <div>${code || '暂无图片'}</div>
           </div>
-          <div class="home-top5-body">
-            <div class="home-top5-name">${name || '未命名商品'}</div>
-            <div class="home-top5-code">${code}</div>
-            <div class="home-top5-amount">${amountText}</div>
-            <div class="home-top5-meta">销售件数 ${fmt(qty)} · 销售门店 ${fmt(storeCoverage)} 家</div>
-            <div class="home-top5-trend ${deltaClass}">${deltaText ? `<i class="bi ${deltaIcon}"></i>${deltaText}` : '暂无趋势'}</div>
-          </div>
-        </a>
+        </div>
+        <div class="home-top5-body">
+          <div class="home-top5-name">${name || '未命名商品'}</div>
+          <div class="home-top5-code">${code}</div>
+          <div class="home-top5-amount">${amountText}</div>
+          <div class="home-top5-meta">销售数量 ${fmt(qty)} · 覆盖门店 ${fmt(storeCoverage)} 家</div>
+          <div class="home-top5-trend ${deltaClass}">${deltaText ? `<i class="bi ${deltaIcon}"></i>${deltaText}` : '暂无趋势'}</div>
+          <a class="home-top5-link" href="/products/${code}">查看详情 <i class="bi bi-arrow-right"></i></a>
+        </div>
       </article>
     `
   }).join('')
@@ -324,16 +328,20 @@ function renderDailySalesChart(rows) {
   });
 }
 async function loadDashboard() {
-  const datePreset = document.getElementById('datePreset').value;
-  const startDate = document.getElementById('startDate').value;
-  const endDate = document.getElementById('endDate').value;
+  const datePresetEl = document.getElementById('datePreset');
+  const startDateEl = document.getElementById('startDate');
+  const endDateEl = document.getElementById('endDate');
+  const topnEl = document.getElementById('topn');
+  const datePreset = datePresetEl ? datePresetEl.value : 'week';
+  const startDate = startDateEl ? startDateEl.value : '';
+  const endDate = endDateEl ? endDateEl.value : '';
   const region = selectedValues('region');
   const category = selectedValues('category');
   const yearPrefix = selectedValues('yearPrefix');
   const seasonCode = selectedValues('seasonCode');
   const wave = selectedValues('wave');
   const store = selectedValues('store');
-  const topn = document.getElementById('topn').value;
+  const topn = topnEl ? topnEl.value : '20';
   const params = new URLSearchParams();
   region.forEach(value => params.append('region', value));
   category.forEach(value => params.append('category', value));
@@ -346,27 +354,65 @@ async function loadDashboard() {
   params.set('end_date', endDate);
   params.set('top_n', topn);
   const url = `/api/dashboard?${params.toString()}`;
-  const data = await (await fetch(url)).json();
-  applyFilterState(data.filters, data.meta);
-  renderKpis(data.summary); renderDailySalesChart(data.daily_sales); renderProducts('globalTop', data.global_top); renderBars('regionBars', data.by_region, '区域名称'); renderBars('categoryBars', data.by_category, '品类'); renderBars('storeBars', data.by_store, '商店名称'); renderRegionTop(data.region_top); renderProducts('colorTop', data.color_top); renderProducts('slowMoving', data.slow_moving); renderMatrix(data.matrix);
-  if (document.getElementById('homeKpiGrid')) {
-    loadExecutiveDashboard(data.meta?.date_max || data.filters?.end_date || '', data).catch(error => {
-      const aiBrief = document.getElementById('homeAiBrief')
-      const top5 = document.getElementById('homeTop5Grid')
-      if (aiBrief) aiBrief.innerHTML = `<div class="home-ai-empty">加载失败：${error.message}</div>`
-      if (top5) top5.innerHTML = `<div class="home-top5-skeleton">加载失败：${error.message}</div>`
-    })
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`)
+    }
+
+    const hasClassicDashboard = Boolean(document.getElementById('kpis'));
+    if (hasClassicDashboard) {
+      try {
+        applyFilterState(data.filters, data.meta);
+        renderKpis(data.summary); renderDailySalesChart(data.daily_sales); renderProducts('globalTop', data.global_top); renderBars('regionBars', data.by_region, '区域名称'); renderBars('categoryBars', data.by_category, '品类'); renderBars('storeBars', data.by_store, '商店名称'); renderRegionTop(data.region_top); renderProducts('colorTop', data.color_top); renderProducts('slowMoving', data.slow_moving); renderMatrix(data.matrix);
+      } catch (error) {
+        console.error('Classic dashboard render failed', error, data)
+      }
+    }
+
+    if (document.getElementById('homeKpiGrid')) {
+      try {
+        await loadExecutiveDashboard(data.meta?.date_max || data.filters?.end_date || '', data)
+      } catch (error) {
+        console.error('Executive dashboard render failed', error, data)
+        const aiBrief = document.getElementById('homeAiBrief')
+        const top5 = document.getElementById('homeTop5Grid')
+        const regions = document.getElementById('homeRegionBrief')
+        const kpis = document.getElementById('homeKpiGrid')
+        if (aiBrief) aiBrief.innerHTML = `<div class="home-ai-empty">加载失败：${error.message}</div>`
+        if (top5) top5.innerHTML = `<div class="home-top5-skeleton">加载失败：${error.message}</div>`
+        if (regions) regions.innerHTML = `<div class="home-ai-empty">加载失败：${error.message}</div>`
+        if (kpis) kpis.innerHTML = `<div class="home-kpi-skeleton">加载失败：${error.message}</div>`
+      }
+    }
+
+    if (hasClassicDashboard && !data.image_index_ready) setTimeout(loadDashboard, 3000);
+  } catch (error) {
+    console.error('Dashboard load failed', error)
+    const aiBrief = document.getElementById('homeAiBrief')
+    const top5 = document.getElementById('homeTop5Grid')
+    const regions = document.getElementById('homeRegionBrief')
+    const kpis = document.getElementById('homeKpiGrid')
+    if (aiBrief) aiBrief.innerHTML = `<div class="home-ai-empty">加载失败：${error.message}</div>`
+    if (top5) top5.innerHTML = `<div class="home-top5-skeleton">加载失败：${error.message}</div>`
+    if (regions) regions.innerHTML = `<div class="home-ai-empty">加载失败：${error.message}</div>`
+    if (kpis) kpis.innerHTML = `<div class="home-kpi-skeleton">加载失败：${error.message}</div>`
   }
-  if (!data.image_index_ready) setTimeout(loadDashboard, 3000);
 }
-function applyFilterState(filters, meta) { if (!filters) return; document.getElementById('datePreset').value = filters.date_preset || 'week'; document.getElementById('startDate').value = filters.start_date || ''; document.getElementById('endDate').value = filters.end_date || ''; setSelectedValues('region', filters.region?.length ? filters.region : ['全国']); setSelectedValues('category', filters.category || []); setSelectedValues('yearPrefix', filters.year_prefix?.length ? filters.year_prefix : (meta?.default_year_prefix ? [meta.default_year_prefix] : [])); setSelectedValues('seasonCode', filters.season_code?.length ? filters.season_code : (meta?.default_season_code ? [meta.default_season_code] : [])); setSelectedValues('wave', filters.wave || []); setSelectedValues('store', filters.store || []); if (meta) { document.getElementById('startDate').min = meta.date_min || ''; document.getElementById('startDate').max = meta.date_max || ''; document.getElementById('endDate').min = meta.date_min || ''; document.getElementById('endDate').max = meta.date_max || ''; } syncDateInputs() }
+function applyFilterState(filters, meta) { if (!filters) return; const datePresetEl = document.getElementById('datePreset'); const startDateEl = document.getElementById('startDate'); const endDateEl = document.getElementById('endDate'); if (datePresetEl) datePresetEl.value = filters.date_preset || 'week'; if (startDateEl) startDateEl.value = filters.start_date || ''; if (endDateEl) endDateEl.value = filters.end_date || ''; setSelectedValues('region', filters.region?.length ? filters.region : ['全国']); setSelectedValues('category', filters.category || []); setSelectedValues('yearPrefix', filters.year_prefix?.length ? filters.year_prefix : (meta?.default_year_prefix ? [meta.default_year_prefix] : [])); setSelectedValues('seasonCode', filters.season_code?.length ? filters.season_code : (meta?.default_season_code ? [meta.default_season_code] : [])); setSelectedValues('wave', filters.wave || []); setSelectedValues('store', filters.store || []); if (meta) { if (startDateEl) { startDateEl.min = meta.date_min || ''; startDateEl.max = meta.date_max || ''; } if (endDateEl) { endDateEl.min = meta.date_min || ''; endDateEl.max = meta.date_max || ''; } } syncDateInputs() }
 function renderKpis(s) { document.getElementById('kpis').innerHTML = Object.entries(s).map(([k, v]) => `<div class="kpi"><span>${k}</span><b>${fmt(v)}</b></div>`).join('') }
 function renderProducts(id, rows) { document.getElementById(id).innerHTML = rows.map(r => `<div class="product">${imgTag(r.image_url)}<div><div class="rank">#${r.排名}</div><div class="code">${r.商品代码}${r.颜色代码 ? '_' + r.颜色代码 : ''}</div><div class="meta">${r.商品名称 || ''} · ${r.颜色名称 || r.品类 || ''}</div><div class="meta">选定价 ¥${fmt(r.选定价)} · <span class="qty">销量 ${fmt(r.销量)}</span>${r.进货数量 !== undefined ? ` · 进货 ${fmt(r.进货数量)}` : ''}</div></div></div>`).join('') || '<p class="meta">暂无数据</p>' }
 function renderBars(id, rows, key) { const max = Math.max(...rows.map(r => r.销量), 1); document.getElementById(id).innerHTML = rows.map(r => `<div class="bar-row"><div class="bar-label"><b>${r[key]}</b><span>${fmt(r.销量)}</span></div><div class="bar"><div style="width:${Math.max(2, r.销量 / max * 100)}%"></div></div></div>`).join('') }
 function renderRegionTop(obj) { const order = ['全国', '北区', '中区', '南区']; document.getElementById('regionTop').innerHTML = order.filter(region => obj[region]).map(region => `<div class="mini"><h3>${region}</h3>${obj[region].slice(0, 20).map(r => `<div class="mini-row with-large-image"><div class="mini-img mini-img-lg">${imgTag(r.image_url || '')}</div><b>${r.排名}</b><span>${r.商品代码}<br><small>${r.商品名称 || ''}</small></span><b>${fmt(r.销量)}</b></div>`).join('')}</div>`).join('') }
 function renderMatrix(rows) { const headers = ['图片', '商品代码', '商品名称', '品类', '全国排名', '全国销量', '北区排名', '北区销量', '中区排名', '中区销量', '南区排名', '南区销量']; document.getElementById('matrixTable').innerHTML = '<thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>' + rows.map(r => '<tr><td class="matrix-image-cell">' + imgTag(r.image_url || '') + '</td>' + headers.slice(1).map(h => `<td>${fmtText(r[h])}</td>`).join('') + '</tr>').join('') + '</tbody>' }
 function fmtText(v) { return typeof v === 'number' ? fmt(v) : (v ?? '') }
-document.getElementById('datePreset').addEventListener('change', syncDateInputs)
+const datePresetControl = document.getElementById('datePreset')
+if (datePresetControl) {
+  datePresetControl.addEventListener('change', syncDateInputs)
+}
 initTabs()
 syncDateInputs()
-loadDashboard();
+loadDashboard().catch(error => {
+  console.error('Initial dashboard bootstrap failed', error)
+})
