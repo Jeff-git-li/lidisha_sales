@@ -117,6 +117,10 @@
 .home-placeholder-card{height:100%;border:1px dashed var(--line);border-radius:18px;background:linear-gradient(180deg,#fff,#f8fafc)}
 .home-placeholder-card .card-body{padding:18px}
 .home-placeholder-card h3{font-size:18px;margin-bottom:10px}
+.home-ai-brief-card{height:100%;border:1px solid rgba(15,118,110,.18);border-radius:18px;background:linear-gradient(180deg,#f8fffe,#ffffff);box-shadow:0 12px 30px rgba(15,23,42,.06)}
+.home-ai-brief-card .card-body{padding:20px}
+.home-ai-kicker{font-size:18px;font-weight:800;color:var(--ink);margin-bottom:4px}
+.home-ai-brief{white-space:pre-wrap;line-height:1.7;font-size:14px;color:var(--ink);background:#f8fafc;border:1px solid var(--line);border-radius:14px;padding:16px 18px;min-height:220px}
 .home-top5-grid .product-card{min-height:100%}
 .home-detail-collapse summary{list-style:none;cursor:pointer}
 .home-detail-collapse summary::-webkit-details-marker{display:none}

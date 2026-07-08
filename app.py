@@ -35,6 +35,7 @@ from database import get_db_connection
 from logging_config import configure_logging, get_logger
 from queries.dashboard import get_dashboard_kpis
 from queries.products import get_product_explorer
+from ai.executive_summary import generate_executive_summary
 from routes.imports import imports_bp
 from routes.insights import insights_bp
 from routes.inventory import inventory_bp
@@ -1173,6 +1174,7 @@ def index():
     df = DATA
     summary = get_dashboard_kpis(None)
     top5_products, _ = get_product_explorer(page=1, per_page=5)
+    executive_brief = generate_executive_summary()
     grouped_regions = {member for members in REGION_GROUPS.values() for member in members}
     regions = [
         region
@@ -1198,6 +1200,7 @@ def index():
         active_page="home",
         summary=summary,
         latest_update=get_latest_update_label(),
+        executive_brief=executive_brief,
         home_metrics=home_metrics,
         top5_products=top5_products,
         regions=regions,
