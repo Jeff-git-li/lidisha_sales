@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "components/product_card.html" import render_product_card %}
 
 {% block content %}
   <section class="page-card home-hero">
@@ -16,70 +15,63 @@
     </div>
   </section>
 
-  <section class="page-card mt-4">
-    <div class="home-section-title">
+  <div id="executiveBriefSeed" class="d-none">{{ executive_brief }}</div>
+
+  <section class="page-card mt-3 home-exec-card">
+    <div class="home-section-title compact">
       <div>
-        <h2 class="h4 mb-1">核心指标</h2>
-        <p class="mb-0">与商品分析共享同一套筛选和聚合逻辑。</p>
+        <h2 class="section-title-xl mb-1">昨日经营指标</h2>
+        <p class="mb-0">仅展示昨日表现，金额、销量、门店数和商品数均按昨日口径呈现。</p>
       </div>
-      <button class="btn btn-outline-primary btn-sm" onclick="reloadData()">刷新数据</button>
+      <button class="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-2" onclick="reloadData()"><i class="bi bi-arrow-clockwise"></i><span>刷新数据</span></button>
     </div>
-    <div class="row g-3">
-      {% for metric in home_metrics %}
-      <div class="col-12 col-md-6 col-xxl-3">
-        <div class="home-kpi-card">
-          <div class="card-body">
-            <div class="home-kpi-label">{{ metric.label }}</div>
-            <div class="home-kpi-value mt-2">{{ '{:,.0f}'.format(metric.value or 0) if metric.label != '销售金额' else '{:,.2f}'.format(metric.value or 0) }}</div>
+    <div id="homeKpiGrid" class="home-kpi-grid">
+      <div class="home-kpi-skeleton">加载昨日指标中...</div>
+    </div>
+  </section>
+
+  <div class="row g-3 mt-0">
+    <div class="col-12 col-xl-6">
+      <section class="page-card h-100 mt-3 home-ai-card">
+        <div class="home-section-title compact mb-3">
+          <div>
+            <h2 class="section-title-xl mb-1"><i class="bi bi-stars me-2 text-primary"></i>AI 今日经营简报</h2>
+            <p class="mb-0">基于昨日数据自动生成，适合管理层晨会阅读。</p>
           </div>
         </div>
-      </div>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section class="page-card mt-4">
-    <div class="home-section-title">
-      <div>
-        <h2 class="h4 mb-1">爆款 Top 5</h2>
-        <p class="mb-0">基于商品分析卡片样式，突出重点商品概览。</p>
-      </div>
-    </div>
-    <div class="row row-cols-1 row-cols-xxl-2 g-3 home-top5-grid">
-      {% for row in top5_products %}
-        {{ render_product_card(row, localized=True) }}
-      {% endfor %}
-    </div>
-  </section>
-
-  <div class="row g-4 mt-0">
-    <div class="col-xl-6">
-      <section class="page-card h-100 mt-4 home-ai-brief-card">
-        <div class="card-body">
-          <div class="home-ai-kicker">🤖 AI 今日经营简报</div>
-          <div class="home-ai-provider text-muted small mb-3">默认来源：MockProvider</div>
-          <div class="home-ai-brief">{{ executive_brief }}</div>
+        <div id="homeAiBrief" class="home-ai-brief home-ai-skeleton">
+          <div class="home-ai-empty">加载简报中...</div>
         </div>
       </section>
     </div>
-    <div class="col-xl-6">
-      <section class="page-card h-100 mt-4 home-placeholder-card">
-        <div class="card-body">
-          <h3 class="h5 mb-2">Region Summary Placeholder</h3>
-          <p class="mb-0 text-muted">后续将在此呈现北区、中区、南区和全国的简要对比。</p>
+    <div class="col-12 col-xl-6">
+      <section class="page-card h-100 mt-3 home-ai-card">
+        <div class="home-section-title compact mb-3">
+          <div>
+            <h2 class="section-title-xl mb-1">重点区域</h2>
+            <p class="mb-0">昨日表现最强和最需关注的区域一眼可见。</p>
+          </div>
+        </div>
+        <div id="homeRegionBrief" class="home-region-grid home-ai-skeleton">
+          <div class="home-ai-empty">加载区域摘要中...</div>
         </div>
       </section>
     </div>
   </div>
 
-  <section class="page-card mt-4 home-placeholder-card">
-    <div class="card-body">
-      <h3 class="h5 mb-2">Alerts Placeholder</h3>
-      <p class="mb-0 text-muted">后续将自动识别销售下滑、缺货、滞销和数据导入异常。</p>
+  <section class="page-card mt-3 home-exec-card">
+    <div class="home-section-title compact">
+      <div>
+        <h2 class="section-title-xl mb-1">昨日爆款 TOP5</h2>
+        <p class="mb-0">昨日销售额最高的商品卡片，控制为一屏可见的横向布局。</p>
+      </div>
+    </div>
+    <div id="homeTop5Grid" class="home-top5-grid home-ai-skeleton">
+      <div class="home-top5-skeleton">加载 Top 5 中...</div>
     </div>
   </section>
 
-  <details class="page-card mt-4 home-detail-collapse">
+  <details class="page-card mt-3 home-detail-collapse">
     <summary class="d-flex align-items-center gap-3 h4 mb-0">Detailed Analysis</summary>
     <div class="mt-4">
       <section class="filters">
@@ -198,5 +190,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=4"></script>
 {% endblock %}

@@ -34,6 +34,7 @@ from config import (
 from database import get_db_connection
 from logging_config import configure_logging, get_logger
 from queries.dashboard import get_dashboard_kpis
+from queries.home import get_home_dashboard, get_home_options
 from queries.products import get_product_explorer
 from ai.executive_summary import generate_executive_summary
 from routes.imports import imports_bp
@@ -1105,18 +1106,25 @@ def apply_filters(df: pd.DataFrame, request_args) -> tuple[pd.DataFrame, dict]:
 
 def build_cover_color_map(df: pd.DataFrame) -> dict:
     sub = df.copy()
-    sub = sub[sub["颜色代码"].notna()]
-    sub["颜色代码"] = sub["颜色代码"].astype(str).str.strip()
-    sub = sub[sub["颜色代码"].ne("") & sub["颜色代码"].ne("nan")]
+    color_column = "颜色代码" if "颜色代码" in sub.columns else "color_code" if "color_code" in sub.columns else None
+    if color_column is None:
+        return {}
+    quantity_column = "数量" if "数量" in sub.columns else "销量" if "销量" in sub.columns else None
+    amount_column = "销售额" if "销售额" in sub.columns else "sales_amount" if "sales_amount" in sub.columns else None
+    if quantity_column is None or amount_column is None:
+        return {}
+    sub = sub[sub[color_column].notna()]
+    sub[color_column] = sub[color_column].astype(str).str.strip()
+    sub = sub[sub[color_column].ne("") & sub[color_column].ne("nan")]
     if sub.empty:
         return {}
 
     cover = (
-        sub.sort_values(["数量", "销售额"], ascending=False)
+        sub.sort_values([quantity_column, amount_column], ascending=False)
         .groupby("商品代码", as_index=False)
-        .first()[["商品代码", "颜色代码"]]
+        .first()[["商品代码", color_column]]
     )
-    return dict(zip(cover["商品代码"], cover["颜色代码"]))
+    return dict(zip(cover["商品代码"], cover[color_column]))
 
 
 def attach_image_urls(rows: list[dict], cover_color_map: dict) -> list[dict]:
@@ -1170,39 +1178,22 @@ def get_latest_update_label() -> str:
 
 @app.route("/")
 def index():
-    ensure_dashboard_data()
-    df = DATA
-    summary = get_dashboard_kpis(None)
-    top5_products, _ = get_product_explorer(page=1, per_page=5)
+    home_data = get_home_dashboard(top_n=1)
+    home_options = get_home_options()
+    meta = home_data["meta"]
     executive_brief = generate_executive_summary()
-    grouped_regions = {member for members in REGION_GROUPS.values() for member in members}
-    regions = [
-        region
-        for region in sorted(df["区域名称"].dropna().unique().tolist())
-        if region and region not in grouped_regions and region not in REGION_GROUPS and region != "未定义"
-    ]
-    categories = sorted(df["品类"].dropna().unique().tolist())
-    stores = sorted(df["商店名称"].dropna().unique().tolist()) if "商店名称" in df.columns else []
-    year_options = year_option_rows(df)
-    season_options = season_option_rows()
-    wave_options = wave_option_rows(df)
-    date_min = df["日期"].min().strftime("%Y-%m-%d") if not df.empty and "日期" in df.columns else ""
-    date_max = df["日期"].max().strftime("%Y-%m-%d") if not df.empty and "日期" in df.columns else ""
-    home_metrics = [
-        {"label": "销售数量", "value": summary.get("总销量", 0)},
-        {"label": "销售金额", "value": summary.get("总销售额", 0)},
-        {"label": "覆盖门店", "value": summary.get("商店数", 0)},
-        {"label": "有销售商品数", "value": summary.get("核心款数", 0)},
-    ]
+    regions = [option["value"] for option in home_options.get("region_options", [])]
+    categories = [option["value"] for option in home_options.get("category_options", [])]
+    stores = [option["value"] for option in home_options.get("store_options", [])]
+    year_options = home_options.get("year_options", [])
+    season_options = home_options.get("season_options", [])
+    wave_options = home_options.get("wave_options", [])
     return render_template(
         "index.html",
         page_title="经营驾驶舱",
         active_page="home",
-        summary=summary,
-        latest_update=get_latest_update_label(),
+        latest_update=meta.get("date_max") or "暂无更新时间",
         executive_brief=executive_brief,
-        home_metrics=home_metrics,
-        top5_products=top5_products,
         regions=regions,
         categories=categories,
         stores=stores,
@@ -1211,91 +1202,31 @@ def index():
         wave_options=wave_options,
         default_year_prefix=DEFAULT_YEAR_PREFIX,
         default_season_code=DEFAULT_SEASON_CODE,
-        date_min=date_min,
-        date_max=date_max,
+        date_min=meta.get("date_min") or "",
+        date_max=meta.get("date_max") or "",
         image_count=len(IMAGE_INDEX),
     )
 
 
 @app.route("/api/dashboard")
 def api_dashboard():
-    ensure_dashboard_data()
-    df = DATA
-    inventory_df = INVENTORY_DATA if INVENTORY_DATA is not None else pd.DataFrame()
     top_n = int(request.args.get("top_n", APP_CONFIG["top_n"]))
-    filtered, filters = apply_filters(df, request.args)
-    region_scope = apply_filter_values(df, filters, include_region=False)
+    home_data = get_home_dashboard(request.args, top_n=top_n)
+    sales_rows = home_data.pop("sales_rows", [])
+    sales_df = pd.DataFrame(sales_rows).rename(columns={"销量": "数量"})
+    inventory_df = INVENTORY_DATA if INVENTORY_DATA is not None else pd.DataFrame()
+    filters = home_data.get("filters", {})
     inventory_filtered = apply_inventory_filters(inventory_df, filters)
-    cover_color_map = build_cover_color_map(df)
+    cover_color_map = build_cover_color_map(sales_df)
+    slow_moving = build_slow_moving_rows(sales_df, inventory_filtered, cover_color_map, top_n)
 
-    region_top = {}
-    for name, members in REGION_GROUPS.items():
-        region_top[name] = agg_rank(region_scope, ["商品代码", "商品名称", "品类", "选定价"], top_n, members or None, filters["category"] or None)
-
-    slow_moving = build_slow_moving_rows(filtered, inventory_filtered, cover_color_map, top_n)
-
-    by_region = (
-        filtered.groupby("区域名称", as_index=False).agg(销量=("数量", "sum"), 销售额=("销售额", "sum"))
-        .sort_values("销量", ascending=False).to_dict(orient="records")
-    )
-    by_category = (
-        filtered.groupby("品类", as_index=False).agg(销量=("数量", "sum"), 销售额=("销售额", "sum"))
-        .sort_values("销量", ascending=False).to_dict(orient="records")
-    )
-    by_store = (
-        filtered.groupby("商店名称", as_index=False).agg(销量=("数量", "sum"), 销售额=("销售额", "sum"))
-        .sort_values(["销量", "销售额"], ascending=False)
-        .head(top_n)
-        .to_dict(orient="records")
-    )
-    for arr in (by_region, by_category, by_store):
-        for r in arr:
-            r["销量"] = int(round(r["销量"]))
-            r["销售额"] = round(float(r["销售额"]), 2)
-
-    daily_sales = (
-        filtered.groupby("日期", as_index=False)
-        .agg(销量=("数量", "sum"), 销售额=("销售额", "sum"))
-        .sort_values("日期")
-        .to_dict(orient="records")
-    )
-    daily_sales = [
-        {
-            "日期": row["日期"].strftime("%Y-%m-%d") if hasattr(row["日期"], "strftime") else str(row["日期"]),
-            "销量": int(round(row["销量"])),
-            "销售额": round(float(row["销售额"]), 2),
-        }
-        for row in daily_sales
-    ]
-
-    region_top = {
-        name: attach_image_urls_by_code(rows, cover_color_map)
-        for name, rows in region_top.items()
-    }
-    matrix = attach_image_urls_by_code(make_matrix(filtered, top_n=30), cover_color_map)
-    return jsonify({
-        "summary": get_dashboard_kpis(translate_filters_for_sql(filters)),
-        "global_top": attach_image_urls(agg_rank(filtered, ["商品代码", "商品名称", "品类", "选定价"], top_n), cover_color_map),
-        "color_top": agg_rank(filtered, ["商品代码", "颜色代码", "颜色名称", "商品名称", "品类", "选定价"], top_n),
+    payload = {
+        **home_data,
         "slow_moving": slow_moving,
-        "region_top": region_top,
-        "by_region": by_region,
-        "by_category": by_category,
-        "by_store": by_store,
-        "daily_sales": daily_sales,
-        "matrix": matrix,
         "filters": filters,
-        "meta": {
-            "date_min": df["日期"].min().strftime("%Y-%m-%d") if not df.empty else "",
-            "date_max": df["日期"].max().strftime("%Y-%m-%d") if not df.empty else "",
-            "default_year_prefix": DEFAULT_YEAR_PREFIX,
-            "default_season_code": DEFAULT_SEASON_CODE,
-            "year_options": year_option_rows(df),
-            "season_options": season_option_rows(),
-            "wave_options": wave_option_rows(df),
-        },
         "image_index_ready": IMAGE_INDEX_READY,
-    })
+    }
+    return jsonify(payload)
 
 
 def make_matrix(df, top_n=30):

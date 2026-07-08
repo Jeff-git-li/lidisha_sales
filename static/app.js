@@ -1,4 +1,71 @@
 function fmt(n) { return Number(n || 0).toLocaleString('zh-CN') }
+function toNumber(value) { const n = Number(value); return Number.isFinite(n) ? n : 0 }
+function formatCurrencySmart(value) {
+  const amount = toNumber(value)
+  const absAmount = Math.abs(amount)
+  if (absAmount >= 100000000) return `¥${(amount / 100000000).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}亿`
+  if (absAmount >= 10000) return `¥${(amount / 10000).toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}万`
+  return `¥${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+function formatCountSmart(value, unit) { return `${fmt(value)} ${unit}` }
+function formatRateSmart(value) { return `${(toNumber(value) * 100).toFixed(2)}%` }
+function formatDeltaSmart(value) {
+  if (!Number.isFinite(value)) return ''
+  const sign = value > 0 ? '↑' : value < 0 ? '↓' : ''
+  const magnitude = `${Math.abs(value).toFixed(1)}%`
+  return sign ? `${sign}${magnitude}` : magnitude
+}
+function getExecutiveBriefSeed() {
+  const el = document.getElementById('executiveBriefSeed') || document.getElementById('homeAiBrief')
+  return el ? el.textContent || '' : ''
+}
+function getExecutiveDiscountRate() {
+  const seed = getExecutiveBriefSeed()
+  const parsed = parseAverageDiscountFromBrief(seed)
+  return Number.isFinite(parsed) ? parsed : null
+}
+function parseAverageDiscountFromBrief(seed) {
+  const match = String(seed || '').match(/平均折扣率[:：]\s*([0-9.]+)%/)
+  return match ? Number(match[1]) / 100 : null
+}
+function previousDateText(dateText) {
+  if (!dateText) return ''
+  const value = new Date(`${dateText}T00:00:00`)
+  if (Number.isNaN(value.getTime())) return ''
+  value.setDate(value.getDate() - 1)
+  return value.toISOString().slice(0, 10)
+}
+function averageDiscountRateFromRows(rows) {
+  const items = Array.isArray(rows) ? rows : []
+  let salesAmount = 0
+  let standardAmount = 0
+  items.forEach(row => {
+    const qty = toNumber(row.销量 ?? row.sales_qty)
+    const amount = toNumber(row.销售额 ?? row.sales_amount)
+    const standardPrice = toNumber(row.选定价 ?? row.standard_price)
+    salesAmount += amount
+    standardAmount += qty * standardPrice
+  })
+  return standardAmount > 0 ? salesAmount / standardAmount : 0
+}
+function buildProductTrendMap(rows) {
+  const map = new Map()
+  ;(rows || []).forEach(row => {
+    const code = row.商品代码 || row.product_code
+    if (code) map.set(code, row)
+  })
+  return map
+}
+function trendLabel(currentAmount, previousAmount) {
+  if (!Number.isFinite(currentAmount) || !Number.isFinite(previousAmount) || previousAmount === 0) return ''
+  const change = ((currentAmount - previousAmount) / previousAmount) * 100
+  return formatDeltaSmart(change)
+}
+function safeDate(value) {
+  if (!value) return ''
+  if (value instanceof Date) return value.toISOString().slice(0, 10)
+  return String(value).slice(0, 10)
+}
 function imgTag(url) { return `<img class="thumb" src="${url}" alt="产品图片" onerror="this.style.display='none'" onclick="openImagePreview('${url}')">` }
 function openImagePreview(url) { const modal = document.getElementById('imageModal'); const img = document.getElementById('imageModalImg'); if (!modal || !img) return; img.src = url; modal.classList.add('open') }
 function closeImagePreview() { const modal = document.getElementById('imageModal'); const img = document.getElementById('imageModalImg'); if (!modal || !img) return; modal.classList.remove('open'); img.src = '' }
@@ -6,6 +73,156 @@ function syncDateInputs() { const preset = document.getElementById('datePreset')
 function selectedValues(id) { return Array.from(document.getElementById(id).selectedOptions).map(option => option.value).filter(Boolean) }
 function setSelectedValues(id, values) { const selected = new Set(values || []); Array.from(document.getElementById(id).options).forEach(option => { option.selected = selected.has(option.value) }) }
 function initTabs() { document.querySelectorAll('.tab-btn').forEach(btn => { btn.addEventListener('click', () => { const target = btn.dataset.tabTarget; const group = btn.parentElement; group.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn)); const container = group.parentElement; container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === target)); }); }); }
+function renderHomeKpis(summary, previousSummary) {
+  const container = document.getElementById('homeKpiGrid')
+  if (!container) return
+  const discountFromBrief = getExecutiveDiscountRate() ?? parseAverageDiscountFromBrief(getExecutiveBriefSeed())
+  const metrics = [
+    { label: '销售额', icon: 'bi-currency-yen', value: formatCurrencySmart(summary.总销售额), delta: previousSummary ? trendLabel(toNumber(summary.总销售额), toNumber(previousSummary.总销售额)) : '' },
+    { label: '销售件数', icon: 'bi-graph-up', value: formatCountSmart(summary.总销量, '件'), delta: previousSummary ? trendLabel(toNumber(summary.总销量), toNumber(previousSummary.总销量)) : '' },
+    { label: '平均折扣率', icon: 'bi-stars', value: formatRateSmart(discountFromBrief ?? summary.average_discount_rate ?? 0), delta: '' },
+    { label: '销售门店数', icon: 'bi-shop', value: formatCountSmart(summary.商店数, '家'), delta: '' },
+  ]
+  container.innerHTML = metrics.map(metric => `
+    <article class="home-kpi-card">
+      <div class="card-body">
+        <div class="d-flex align-items-start justify-content-between gap-3">
+          <div class="home-kpi-label">${metric.label}</div>
+          <div class="home-kpi-icon"><i class="bi ${metric.icon}"></i></div>
+        </div>
+        <div class="home-kpi-value mt-3">${metric.value}</div>
+        ${metric.delta ? `<div class="home-kpi-delta mt-2 ${metric.delta.startsWith('↓') ? 'text-danger' : 'text-success'}">较前日 ${metric.delta}</div>` : '<div class="home-kpi-delta mt-2 text-muted">&nbsp;</div>'}
+      </div>
+    </article>
+  `).join('')
+}
+function renderHomeAiBrief(summary, previousSummary, currentRows, previousRows, regionRows) {
+  const container = document.getElementById('homeAiBrief')
+  if (!container) return
+  const discountRate = getExecutiveDiscountRate()
+  const previousAmount = previousSummary ? toNumber(previousSummary.总销售额) : 0
+  const currentAmount = toNumber(summary.总销售额)
+  const amountDelta = previousAmount ? ((currentAmount - previousAmount) / previousAmount) * 100 : null
+  const previousQty = previousSummary ? toNumber(previousSummary.总销量) : 0
+  const currentQty = toNumber(summary.总销量)
+  const previousMap = buildProductTrendMap(previousRows)
+  const topProduct = currentRows && currentRows.length ? currentRows[0] : null
+  const topProductCode = topProduct ? (topProduct.商品代码 || topProduct.product_code || '') : ''
+  const topProductName = topProduct ? (topProduct.商品名称 || topProduct.product_name || '') : ''
+  const topProductAmount = topProduct ? formatCurrencySmart(toNumber(topProduct.销售额 ?? topProduct.sales_amount)) : '暂无'
+  const regions = Array.isArray(regionRows) ? regionRows.slice(0, 4) : []
+  const topRegion = regions.length ? regions[0] : null
+  const weakestRegion = regions.length ? regions[regions.length - 1] : null
+  const currentDiscount = discountRate ?? averageDiscountRateFromRows(currentRows)
+  const trendText = topProductCode && previousMap.has(topProductCode)
+    ? trendLabel(toNumber(topProduct.销售额 ?? topProduct.sales_amount), toNumber(previousMap.get(topProductCode).销售额 ?? previousMap.get(topProductCode).sales_amount))
+    : ''
+  const briefItems = [
+    `昨日销售额${formatCurrencySmart(currentAmount)}${amountDelta === null ? '' : `，较前日${formatDeltaSmart(amountDelta)}`}。`,
+    `销售件数${formatCountSmart(currentQty, '件')}，销售门店${formatCountSmart(summary.商店数, '家')}，平均折扣率${formatRateSmart(currentDiscount)}。`,
+  ]
+  if (topProductCode) briefItems.push(`主要增长来自${topProductName}（${topProductCode}），销售额${topProductAmount}。`)
+  if (topProductCode && trendText) briefItems.push(`冠军商品较前日${trendText}，建议继续补货。`)
+  if (topRegion) {
+    briefItems.push(`重点区域${topRegion.区域名称 || topRegion.region_name || '全国'}领先；${weakestRegion && weakestRegion !== topRegion ? `${weakestRegion.区域名称 || weakestRegion.region_name || '末位区域'}需要关注库存与折扣。` : '保持现有投放节奏。'}`)
+  }
+  briefItems.push('建议继续保障畅销款补货，并关注末位区域库存与折扣策略。')
+  const bullets = briefItems.slice(0, 5).map(text => `<li>${text}</li>`).join('')
+  container.classList.remove('home-ai-skeleton')
+  container.innerHTML = `<div class="home-ai-lead">昨日经营节奏保持稳健，重点关注销量、冠军款和区域变化。</div><ul class="home-ai-bullets">${bullets}</ul>`
+}
+function renderHomeRegionBrief(regionRows, previousRegionRows) {
+  const container = document.getElementById('homeRegionBrief')
+  if (!container) return
+  const current = (regionRows || []).slice(0, 4)
+  if (!current.length) {
+    container.innerHTML = '<div class="home-ai-empty">暂无区域数据</div>'
+    return
+  }
+  const previous = Array.isArray(previousRegionRows) ? previousRegionRows : []
+  container.classList.remove('home-ai-skeleton')
+  container.innerHTML = current.map((row, index) => {
+    const name = row.区域名称 || row.region_name || '区域'
+    const sales = toNumber(row.销售额 ?? row.sales_amount)
+    const qty = toNumber(row.销量 ?? row.sales_qty)
+    const prev = previous.find(item => (item.区域名称 || item.region_name || '') === name)
+    const delta = prev ? trendLabel(sales, toNumber(prev.销售额 ?? prev.sales_amount)) : ''
+    const trendClass = delta.startsWith('↓') ? 'down' : 'up'
+    const trendIcon = delta.startsWith('↓') ? 'bi-arrow-down-short' : 'bi-arrow-up-short'
+    return `
+      <article class="home-region-card">
+        <div class="home-region-label">${index === 0 ? '领先区域' : index === current.length - 1 ? '关注区域' : '重点区域'}</div>
+        <div class="home-region-name">${name}</div>
+        <div class="home-region-amount">${formatCurrencySmart(sales)}</div>
+        <div class="home-region-qty">${formatCountSmart(qty, '件')}</div>
+        <div class="home-region-trend ${trendClass}">${delta ? `<i class="bi ${trendIcon}"></i>${delta}` : '暂无趋势'}</div>
+      </article>
+    `
+  }).join('')
+}
+function renderHomeTop5(rows, previousRows) {
+  const container = document.getElementById('homeTop5Grid')
+  if (!container) return
+  const previousMap = buildProductTrendMap(previousRows)
+  const items = (rows || []).slice(0, 5)
+  if (!items.length) {
+    container.innerHTML = '<div class="home-top5-skeleton">暂无 Top 5 数据</div>'
+    return
+  }
+  container.innerHTML = items.map(row => {
+    const code = row.商品代码 || row.product_code || ''
+    const name = row.商品名称 || row.product_name || ''
+    const imageUrl = row.image_url || ''
+    const amount = toNumber(row.销售额 ?? row.sales_amount)
+    const qty = toNumber(row.销量 ?? row.sales_qty)
+    const storeCoverage = toNumber(row.store_coverage ?? row.store_count)
+    const amountText = formatCurrencySmart(amount)
+    const previousRow = previousMap.get(code)
+    const deltaText = previousRow ? trendLabel(amount, toNumber(previousRow.销售额 ?? previousRow.sales_amount)) : ''
+    const deltaClass = deltaText.startsWith('↓') ? 'down' : 'up'
+    const deltaIcon = deltaText.startsWith('↓') ? 'bi-arrow-down-short' : 'bi-arrow-up-short'
+    const imageMarkup = imageUrl
+      ? `<img src="${imageUrl}" alt="${name}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('d-none');">`
+      : ''
+    return `
+      <article class="home-top5-card">
+        <a class="home-top5-card-link" href="/products/${code}">
+          <div class="home-top5-media">
+            ${imageMarkup}
+            <div class="home-top5-fallback${imageUrl ? ' d-none' : ''}">
+              <i class="bi bi-image"></i>
+              <div>${code || '暂无图片'}</div>
+            </div>
+          </div>
+          <div class="home-top5-body">
+            <div class="home-top5-name">${name || '未命名商品'}</div>
+            <div class="home-top5-code">${code}</div>
+            <div class="home-top5-amount">${amountText}</div>
+            <div class="home-top5-meta">销售件数 ${fmt(qty)} · 销售门店 ${fmt(storeCoverage)} 家</div>
+            <div class="home-top5-trend ${deltaClass}">${deltaText ? `<i class="bi ${deltaIcon}"></i>${deltaText}` : '暂无趋势'}</div>
+          </div>
+        </a>
+      </article>
+    `
+  }).join('')
+}
+async function loadExecutiveDashboard(dateMax, weeklyData) {
+  if (!dateMax) return
+  const currentDate = safeDate(dateMax)
+  const previousDate = previousDateText(currentDate)
+  const currentParams = new URLSearchParams({ date_preset: 'custom', start_date: currentDate, end_date: currentDate, top_n: '5' })
+  const previousParams = new URLSearchParams({ date_preset: 'custom', start_date: previousDate, end_date: previousDate, top_n: '5' })
+  const [currentResponse, previousResponse] = await Promise.all([
+    fetch(`/api/dashboard?${currentParams.toString()}`).then(response => response.json()),
+    previousDate ? fetch(`/api/dashboard?${previousParams.toString()}`).then(response => response.json()) : Promise.resolve(null),
+  ])
+  const currentSummary = currentResponse.summary || {}
+  const previousSummary = previousResponse ? (previousResponse.summary || {}) : null
+  renderHomeKpis(currentSummary, previousSummary)
+  renderHomeAiBrief(currentSummary, previousSummary, currentResponse.global_top || [], previousResponse ? (previousResponse.global_top || []) : [], currentResponse.by_region || [])
+  renderHomeRegionBrief(currentResponse.by_region || [], previousResponse ? (previousResponse.by_region || []) : [])
+  renderHomeTop5(currentResponse.global_top || [], previousResponse ? (previousResponse.global_top || []) : [])
+}
 async function reloadData() {
   const button = document.querySelector('button[onclick="reloadData()"]');
   const previousText = button ? button.textContent : '';
@@ -132,6 +349,14 @@ async function loadDashboard() {
   const data = await (await fetch(url)).json();
   applyFilterState(data.filters, data.meta);
   renderKpis(data.summary); renderDailySalesChart(data.daily_sales); renderProducts('globalTop', data.global_top); renderBars('regionBars', data.by_region, '区域名称'); renderBars('categoryBars', data.by_category, '品类'); renderBars('storeBars', data.by_store, '商店名称'); renderRegionTop(data.region_top); renderProducts('colorTop', data.color_top); renderProducts('slowMoving', data.slow_moving); renderMatrix(data.matrix);
+  if (document.getElementById('homeKpiGrid')) {
+    loadExecutiveDashboard(data.meta?.date_max || data.filters?.end_date || '', data).catch(error => {
+      const aiBrief = document.getElementById('homeAiBrief')
+      const top5 = document.getElementById('homeTop5Grid')
+      if (aiBrief) aiBrief.innerHTML = `<div class="home-ai-empty">加载失败：${error.message}</div>`
+      if (top5) top5.innerHTML = `<div class="home-top5-skeleton">加载失败：${error.message}</div>`
+    })
+  }
   if (!data.image_index_ready) setTimeout(loadDashboard, 3000);
 }
 function applyFilterState(filters, meta) { if (!filters) return; document.getElementById('datePreset').value = filters.date_preset || 'week'; document.getElementById('startDate').value = filters.start_date || ''; document.getElementById('endDate').value = filters.end_date || ''; setSelectedValues('region', filters.region?.length ? filters.region : ['全国']); setSelectedValues('category', filters.category || []); setSelectedValues('yearPrefix', filters.year_prefix?.length ? filters.year_prefix : (meta?.default_year_prefix ? [meta.default_year_prefix] : [])); setSelectedValues('seasonCode', filters.season_code?.length ? filters.season_code : (meta?.default_season_code ? [meta.default_season_code] : [])); setSelectedValues('wave', filters.wave || []); setSelectedValues('store', filters.store || []); if (meta) { document.getElementById('startDate').min = meta.date_min || ''; document.getElementById('startDate').max = meta.date_max || ''; document.getElementById('endDate').min = meta.date_min || ''; document.getElementById('endDate').max = meta.date_max || ''; } syncDateInputs() }
