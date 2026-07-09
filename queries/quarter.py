@@ -334,6 +334,43 @@ def get_quarter_category_summary(period: QuarterPeriod, scope: str | None = None
     ]
 
 
+def get_quarter_primary_category_summary(period: QuarterPeriod, scope: str | None = None) -> list[QuarterCategorySummary]:
+    where_sql, params = build_where_clause(_quarter_filter(period, scope), core_only=True)
+    total_row = _query_one(
+        f"""
+        {JOINED_CTE}
+        SELECT COALESCE(SUM(effective_amount), 0) AS sales_amount
+        FROM joined
+        {where_sql}
+        """,
+        params,
+    )
+    total_amount = float(total_row.get("sales_amount", 0) or 0)
+    rows = _query_all(
+        f"""
+        {JOINED_CTE}
+        SELECT
+            COALESCE(big_category_name, '未分类') AS category_name,
+            COALESCE(SUM(qty), 0) AS sales_qty,
+            COALESCE(SUM(effective_amount), 0) AS sales_amount
+        FROM joined
+        {where_sql}
+        GROUP BY COALESCE(big_category_name, '未分类')
+        ORDER BY sales_amount DESC, sales_qty DESC, category_name ASC
+        """,
+        params,
+    )
+    return [
+        QuarterCategorySummary(
+            category_name=str(row.get("category_name", "") or "未分类"),
+            sales_amount=float(row.get("sales_amount", 0) or 0),
+            sales_qty=float(row.get("sales_qty", 0) or 0),
+            contribution_rate=(float(row.get("sales_amount", 0) or 0) / total_amount) if total_amount else 0.0,
+        )
+        for row in rows
+    ]
+
+
 def get_quarter_wave_summary(period: QuarterPeriod, scope: str | None = None) -> list[QuarterWaveSummary]:
     where_sql, params = build_where_clause(_quarter_filter(period, scope), core_only=True)
     total_row = _query_one(
@@ -426,7 +463,7 @@ def get_quarter_analysis_context(selected_year: int | None = None, selected_quar
         comparisons.append(get_quarter_comparison(period, same_last_year, scope=scope))
     top_products = get_quarter_top_products(period, limit=20, sort_by="amount", scope=scope)
     region_summary = get_quarter_region_summary(period, scope=scope)
-    category_summary = get_quarter_category_summary(period, scope=scope)
+    category_summary = get_quarter_primary_category_summary(period, scope=scope) if (scope or "women") == "women" else get_quarter_category_summary(period, scope=scope)
     wave_summary = get_quarter_wave_summary(period, scope=scope)
     return QuarterAnalysisContext(
         period=period,
