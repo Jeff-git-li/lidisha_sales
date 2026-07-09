@@ -36,6 +36,8 @@ SEASON_CODE_MAP = {
 def _normalize_home_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
     normalized = normalize_filter_values(filters)
     query_filters: dict[str, Any] = {}
+    scope = normalized.get("scope", ["women"])[0] if normalized.get("scope") else "women"
+    query_filters["scope"] = [scope if scope in {"women", "all"} else "women"]
     for key in ("start_date", "end_date", "wave", "source_file"):
         values = normalized.get(key, [])
         if values:

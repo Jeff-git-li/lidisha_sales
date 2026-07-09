@@ -69,6 +69,9 @@ def product_detail(product_code: str):
 @products_bp.route("/products")
 def products_page():
     selected_filters = {key: _selected_values(request.args, key) for key in PRODUCT_FILTER_KEYS}
+    scope = request.args.get("scope", "women").strip().lower() or "women"
+    if scope not in {"women", "all"}:
+        scope = "women"
     search = request.args.get("q", "").strip()
     sort = request.args.get("sort", "sales_qty").strip() or "sales_qty"
     order = request.args.get("order", "desc").strip() or "desc"
@@ -82,6 +85,7 @@ def products_page():
     query_filters = {key: values for key, values in selected_filters.items() if values}
     if search:
         query_filters["search"] = [search]
+    query_filters["scope"] = [scope]
 
     rows, total_count = get_product_explorer(
         filters=query_filters,
@@ -156,4 +160,5 @@ def products_page():
         display_modes=DISPLAY_MODES,
         options=options,
         query_action=url_for("products.products_page"),
+        scope=scope,
     )
