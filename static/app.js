@@ -1,5 +1,56 @@
 function fmt(n) { return Number(n || 0).toLocaleString('zh-CN') }
 function toNumber(value) { const n = Number(value); return Number.isFinite(n) ? n : 0 }
+const homeElementCache = new Map()
+const homeRenderTimers = []
+let homePerfRunId = 0
+function getHomeElement(id) {
+  if (homeElementCache.has(id)) return homeElementCache.get(id)
+  const element = document.getElementById(id)
+  homeElementCache.set(id, element)
+  return element
+}
+function clearHomeElementCache() {
+  homeElementCache.clear()
+}
+function startHomeTiming(label) {
+  const name = `home:${label}:${++homePerfRunId}`
+  if (performance?.mark) performance.mark(`${name}:start`)
+  return name
+}
+function endHomeTiming(name) {
+  if (performance?.mark) performance.mark(`${name}:end`)
+  if (performance?.measure) performance.measure(name, `${name}:start`, `${name}:end`)
+  const entries = performance.getEntriesByName(name)
+  const duration = entries.length ? entries[entries.length - 1].duration : 0
+  homeRenderTimers.push({ label: name, duration })
+  return duration
+}
+function logHomeTimingSummary(summary) {
+  const fetchMs = summary.fetchMs ?? 0
+  const parseMs = summary.parseMs ?? 0
+  const kpiMs = summary.kpiMs ?? 0
+  const aiMs = summary.aiMs ?? 0
+  const regionMs = summary.regionMs ?? 0
+  const top5Ms = summary.top5Ms ?? 0
+  const totalMs = summary.totalMs ?? 0
+  console.log(`Fetch: ${fetchMs.toFixed(1)} ms`)
+  console.log(`JSON parse: ${parseMs.toFixed(1)} ms`)
+  console.log(`KPI render: ${kpiMs.toFixed(1)} ms`)
+  console.log(`AI brief render: ${aiMs.toFixed(1)} ms`)
+  console.log(`Region render: ${regionMs.toFixed(1)} ms`)
+  console.log(`Top5 render: ${top5Ms.toFixed(1)} ms`)
+  console.log(`Total dashboard render time: ${totalMs.toFixed(1)} ms`)
+  ;[
+    ['KPI render', kpiMs],
+    ['AI brief render', aiMs],
+    ['Region render', regionMs],
+    ['Top5 render', top5Ms],
+  ].forEach(([label, duration]) => {
+    if (duration > 50) {
+      console.warn(`${label} exceeded 50 ms`, { duration, summary })
+    }
+  })
+}
 function formatCurrencySmart(value) {
   const amount = toNumber(value)
   const absAmount = Math.abs(amount)
@@ -18,6 +69,26 @@ function formatDeltaSmart(value) {
 function getExecutiveBriefSeed() { return '' }
 function getExecutiveDiscountRate() { return null }
 function parseAverageDiscountFromBrief(seed) { return null }
+function pickValue(source, keys) {
+  for (const key of keys) {
+    const value = source?.[key]
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return 0
+}
+function computeDiscountFromRows(rows) {
+  const items = Array.isArray(rows) ? rows : []
+  let salesAmount = 0
+  let standardAmount = 0
+  items.forEach(row => {
+    const qty = toNumber(row.sales_qty ?? row.销量)
+    const amount = toNumber(row.sales_amount ?? row.销售额)
+    const standardPrice = toNumber(row.standard_price ?? row.选定价)
+    salesAmount += amount
+    standardAmount += qty * standardPrice
+  })
+  return standardAmount > 0 ? salesAmount / standardAmount : 0
+}
 function previousDateText(dateText) {
   if (!dateText) return ''
   const value = new Date(`${dateText}T00:00:00`)
@@ -63,15 +134,22 @@ function syncDateInputs() { const presetEl = document.getElementById('datePreset
 function selectedValues(id) { const el = document.getElementById(id); return el ? Array.from(el.selectedOptions).map(option => option.value).filter(Boolean) : [] }
 function setSelectedValues(id, values) { const select = document.getElementById(id); if (!select) return; const selected = new Set(values || []); Array.from(select.options).forEach(option => { option.selected = selected.has(option.value) }) }
 function initTabs() { document.querySelectorAll('.tab-btn').forEach(btn => { btn.addEventListener('click', () => { const target = btn.dataset.tabTarget; const group = btn.parentElement; group.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn)); const container = group.parentElement; container.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === target)); }); }); }
-function renderHomeKpis(summary, previousSummary) {
-  const container = document.getElementById('homeKpiGrid')
+function renderHomeKpis(summary, previousSummary, currentRows) {
+  const container = getHomeElement('homeKpiGrid')
   if (!container) return
-  const discountFromBrief = getExecutiveDiscountRate() ?? parseAverageDiscountFromBrief(getExecutiveBriefSeed())
+  const salesAmount = toNumber(pickValue(summary, ['总销售额', 'total_amount', 'sales_amount']))
+  const salesQty = toNumber(pickValue(summary, ['总销量', 'total_qty', 'sales_qty']))
+  const storeCount = toNumber(pickValue(summary, ['商店数', 'store_count']))
+    const averageDiscount = toNumber(pickValue(summary, ['average_discount_rate']))
+    const discountFromRows = computeDiscountFromRows(currentRows)
+    const discountFromBrief = getExecutiveDiscountRate() ?? parseAverageDiscountFromBrief(getExecutiveBriefSeed()) ?? discountFromRows
+  const previousSalesAmount = previousSummary ? toNumber(pickValue(previousSummary, ['总销售额', 'total_amount', 'sales_amount'])) : 0
+  const previousSalesQty = previousSummary ? toNumber(pickValue(previousSummary, ['总销量', 'total_qty', 'sales_qty'])) : 0
   const metrics = [
-    { label: '销售金额', icon: 'bi-currency-yen', value: formatCurrencySmart(summary.总销售额), delta: previousSummary ? trendLabel(toNumber(summary.总销售额), toNumber(previousSummary.总销售额)) : '' },
-    { label: '销售数量', icon: 'bi-bag-check', value: formatCountSmart(summary.总销量, '件'), delta: previousSummary ? trendLabel(toNumber(summary.总销量), toNumber(previousSummary.总销量)) : '' },
-    { label: '平均折扣', icon: 'bi-percent', value: formatRateSmart(discountFromBrief ?? summary.average_discount_rate ?? 0), delta: '' },
-    { label: '活跃门店', icon: 'bi-shop', value: formatCountSmart(summary.商店数, '家'), delta: '' },
+    { label: '销售金额', icon: 'bi-currency-yen', value: formatCurrencySmart(salesAmount), delta: previousSummary ? trendLabel(salesAmount, previousSalesAmount) : '' },
+    { label: '销售数量', icon: 'bi-bag-check', value: formatCountSmart(salesQty, '件'), delta: previousSummary ? trendLabel(salesQty, previousSalesQty) : '' },
+    { label: '平均折扣', icon: 'bi-percent', value: formatRateSmart(averageDiscount), delta: '' },
+    { label: '活跃门店', icon: 'bi-shop', value: formatCountSmart(storeCount, '家'), delta: '' },
   ]
   container.innerHTML = metrics.map(metric => `
     <article class="home-kpi-card">
@@ -87,10 +165,10 @@ function renderHomeKpis(summary, previousSummary) {
   `).join('')
 }
 function renderHomeAiBrief(summary, previousSummary, currentRows, previousRows, regionRows) {
-  const container = document.getElementById('homeAiBrief')
+  const container = getHomeElement('homeAiBrief')
   if (!container) return
-  const previousAmount = previousSummary ? toNumber(previousSummary.总销售额) : 0
-  const currentAmount = toNumber(summary.总销售额)
+  const previousAmount = previousSummary ? toNumber(pickValue(previousSummary, ['总销售额', 'total_amount', 'sales_amount'])) : 0
+  const currentAmount = toNumber(pickValue(summary, ['总销售额', 'total_amount', 'sales_amount']))
   const amountDelta = previousAmount ? ((currentAmount - previousAmount) / previousAmount) * 100 : null
   const previousMap = buildProductTrendMap(previousRows)
   const topProduct = currentRows && currentRows.length ? currentRows[0] : null
@@ -105,12 +183,12 @@ function renderHomeAiBrief(summary, previousSummary, currentRows, previousRows, 
   const trendText = topProductCode && previousMap.has(topProductCode)
     ? trendLabel(toNumber(topProduct.销售额 ?? topProduct.sales_amount), toNumber(previousMap.get(topProductCode).销售额 ?? previousMap.get(topProductCode).sales_amount))
     : ''
-  const summaryLine = `昨日销售${formatCurrencySmart(currentAmount)}${amountDelta === null ? '' : `，较前日${formatDeltaSmart(amountDelta)}`}。`
+  const summaryLine = `最新销售日销售${formatCurrencySmart(currentAmount)}${amountDelta === null ? '' : `，较前一销售日${formatDeltaSmart(amountDelta)}`}。`
   const actionLine = topProductCode
     ? `建议优先补货 ${topProductName}（${topProductCode}），并关注 ${bestRegionName} 的持续表现。`
     : '建议优先关注高动销商品补货，并继续跟踪重点区域表现。'
   const bullets = [
-    `销售件数 ${formatCountSmart(toNumber(summary.总销量), '件')}，活跃门店 ${formatCountSmart(summary.商店数, '家')}。`,
+    `销售件数 ${formatCountSmart(toNumber(pickValue(summary, ['总销量', 'total_qty', 'sales_qty'])), '件')}，活跃门店 ${formatCountSmart(pickValue(summary, ['商店数', 'store_count']), '家')}。`,
     topProductCode ? `最佳商品为 ${topProductName}（${topProductCode}），销售额 ${topProductAmount}${trendText ? `，较前日${trendText}` : ''}。` : '暂无足够数据识别最佳商品。',
     `建议关注 ${worstRegionName} 的库存和折扣。`,
   ].map(text => `<li>${text}</li>`).join('')
@@ -118,7 +196,7 @@ function renderHomeAiBrief(summary, previousSummary, currentRows, previousRows, 
   container.innerHTML = `<div class="home-ai-summary">${summaryLine}</div><div class="home-ai-summary">${actionLine}</div><ul class="home-ai-bullets">${bullets}</ul>`
 }
 function renderHomeRegionBrief(regionRows, previousRegionRows) {
-  const container = document.getElementById('homeRegionBrief')
+  const container = getHomeElement('homeRegionBrief')
   if (!container) return
   const current = Array.isArray(regionRows) ? regionRows : []
   if (!current.length) {
@@ -127,17 +205,17 @@ function renderHomeRegionBrief(regionRows, previousRegionRows) {
   }
   const previous = Array.isArray(previousRegionRows) ? previousRegionRows : []
   container.classList.remove('home-ai-skeleton')
+  const previousMap = new Map(previous.map(item => [(item.区域名称 || item.region_name || ''), item]))
+  const currentDeltas = current.map(item => {
+    const name = item.区域名称 || item.region_name || '区域'
+    const prev = previousMap.get(name)
+    const sales = toNumber(item.销售额 ?? item.sales_amount)
+    const prevSales = prev ? toNumber(prev.销售额 ?? prev.sales_amount) : 0
+    return { item, name, sales, delta: prev ? sales - prevSales : 0, prevExists: Boolean(prev) }
+  })
   const best = current[0] || null
-  const growth = current.slice().sort((a, b) => {
-    const currentDelta = toNumber(a.销售额 ?? a.sales_amount) - toNumber((previous.find(item => (item.区域名称 || item.region_name || '') === (a.区域名称 || a.region_name || '')) || {}).销售额 ?? (previous.find(item => (item.区域名称 || item.region_name || '') === (a.区域名称 || a.region_name || '')) || {}).sales_amount)
-    const otherDelta = toNumber(b.销售额 ?? b.sales_amount) - toNumber((previous.find(item => (item.区域名称 || item.region_name || '') === (b.区域名称 || b.region_name || '')) || {}).销售额 ?? (previous.find(item => (item.区域名称 || item.region_name || '') === (b.区域名称 || b.region_name || '')) || {}).sales_amount)
-    return otherDelta - currentDelta
-  })[0] || null
-  const decline = current.slice().sort((a, b) => {
-    const currentDelta = toNumber(a.销售额 ?? a.sales_amount) - toNumber((previous.find(item => (item.区域名称 || item.region_name || '') === (a.区域名称 || a.region_name || '')) || {}).销售额 ?? (previous.find(item => (item.区域名称 || item.region_name || '') === (a.区域名称 || a.region_name || '')) || {}).sales_amount)
-    const otherDelta = toNumber(b.销售额 ?? b.sales_amount) - toNumber((previous.find(item => (item.区域名称 || item.region_name || '') === (b.区域名称 || b.region_name || '')) || {}).销售额 ?? (previous.find(item => (item.区域名称 || item.region_name || '') === (b.区域名称 || b.region_name || '')) || {}).sales_amount)
-    return currentDelta - otherDelta
-  })[0] || null
+  const growth = currentDeltas.slice().sort((a, b) => b.delta - a.delta)[0]?.item || null
+  const decline = currentDeltas.slice().sort((a, b) => a.delta - b.delta)[0]?.item || null
   const attention = current[current.length - 1] || null
   const cards = [
     { title: '最佳区域', row: best },
@@ -166,7 +244,7 @@ function renderHomeRegionBrief(regionRows, previousRegionRows) {
   }).join('')
 }
 function renderHomeTop5(rows, previousRows) {
-  const container = document.getElementById('homeTop5Grid')
+  const container = getHomeElement('homeTop5Grid')
   if (!container) return
   const previousMap = buildProductTrendMap(previousRows)
   const items = (rows || []).slice(0, 5)
@@ -214,18 +292,24 @@ async function loadExecutiveDashboard(dateMax, weeklyData) {
   if (!dateMax) return
   const currentDate = safeDate(dateMax)
   const previousDate = previousDateText(currentDate)
-  const currentParams = new URLSearchParams({ date_preset: 'custom', start_date: currentDate, end_date: currentDate, top_n: '5' })
   const previousParams = new URLSearchParams({ date_preset: 'custom', start_date: previousDate, end_date: previousDate, top_n: '5' })
-  const [currentResponse, previousResponse] = await Promise.all([
-    fetch(`/api/dashboard?${currentParams.toString()}`).then(response => response.json()),
-    previousDate ? fetch(`/api/dashboard?${previousParams.toString()}`).then(response => response.json()) : Promise.resolve(null),
-  ])
+  const currentResponse = weeklyData || {}
+  const previousResponse = previousDate ? await fetch(`/api/dashboard?${previousParams.toString()}`).then(response => response.json()) : null
   const currentSummary = currentResponse.summary || {}
   const previousSummary = previousResponse ? (previousResponse.summary || {}) : null
-  renderHomeKpis(currentSummary, previousSummary)
+  const kpiStart = startHomeTiming('kpi-render')
+  renderHomeKpis(currentSummary, previousSummary, currentResponse.global_top || [])
+  const kpiMs = endHomeTiming(kpiStart)
+  const aiStart = startHomeTiming('ai-render')
   renderHomeAiBrief(currentSummary, previousSummary, currentResponse.global_top || [], previousResponse ? (previousResponse.global_top || []) : [], currentResponse.by_region || [])
+  const aiMs = endHomeTiming(aiStart)
+  const regionStart = startHomeTiming('region-render')
   renderHomeRegionBrief(currentResponse.by_region || [], previousResponse ? (previousResponse.by_region || []) : [])
+  const regionMs = endHomeTiming(regionStart)
+  const top5Start = startHomeTiming('top5-render')
   renderHomeTop5(currentResponse.global_top || [], previousResponse ? (previousResponse.global_top || []) : [])
+  const top5Ms = endHomeTiming(top5Start)
+  logHomeTimingSummary({ fetchMs: 0, parseMs: 0, kpiMs, aiMs, regionMs, top5Ms, totalMs: kpiMs + aiMs + regionMs + top5Ms })
 }
 async function reloadData() {
   const button = document.querySelector('button[onclick="reloadData()"]');
@@ -328,6 +412,8 @@ function renderDailySalesChart(rows) {
   });
 }
 async function loadDashboard() {
+  clearHomeElementCache()
+  const totalStart = startHomeTiming('total-dashboard')
   const datePresetEl = document.getElementById('datePreset');
   const startDateEl = document.getElementById('startDate');
   const endDateEl = document.getElementById('endDate');
@@ -355,8 +441,13 @@ async function loadDashboard() {
   params.set('top_n', topn);
   const url = `/api/dashboard?${params.toString()}`;
   try {
+    const fetchStart = startHomeTiming('fetch')
     const response = await fetch(url);
-    const data = await response.json();
+    const fetchMs = endHomeTiming(fetchStart)
+    const parseStart = startHomeTiming('json-parse')
+    const responseText = await response.text();
+    const data = JSON.parse(responseText);
+    const parseMs = endHomeTiming(parseStart)
     if (!response.ok) {
       throw new Error(data.error || `HTTP ${response.status}`)
     }
@@ -373,7 +464,7 @@ async function loadDashboard() {
 
     if (document.getElementById('homeKpiGrid')) {
       try {
-        await loadExecutiveDashboard(data.meta?.date_max || data.filters?.end_date || '', data)
+        await loadExecutiveDashboard(data.summary?.latest_data_date || data.summary?.snapshot_date || data.meta?.date_max || data.filters?.end_date || '', data)
       } catch (error) {
         console.error('Executive dashboard render failed', error, data)
         const aiBrief = document.getElementById('homeAiBrief')
@@ -387,8 +478,14 @@ async function loadDashboard() {
       }
     }
 
+    const totalMs = endHomeTiming(totalStart)
+    console.log(`Fetch: ${fetchMs.toFixed(1)} ms`)
+    console.log(`JSON parse: ${parseMs.toFixed(1)} ms`)
+    console.log(`Total dashboard render time: ${totalMs.toFixed(1)} ms`)
+
     if (hasClassicDashboard && !data.image_index_ready) setTimeout(loadDashboard, 3000);
   } catch (error) {
+    endHomeTiming(totalStart)
     console.error('Dashboard load failed', error)
     const aiBrief = document.getElementById('homeAiBrief')
     const top5 = document.getElementById('homeTop5Grid')

@@ -33,6 +33,7 @@ from config import (
 )
 from database import get_db_connection
 from logging_config import configure_logging, get_logger
+from dashboard.builder import rebuild_dashboard_snapshot
 from queries.home import get_home_dashboard
 from routes.imports import imports_bp
 from routes.insights import insights_bp
@@ -806,6 +807,7 @@ def reload_dashboard_data(trigger: str = "manual") -> dict:
     with DATA_REFRESH_LOCK:
         DATA = refresh_sales_data()
         INVENTORY_DATA = refresh_inventory_data()
+        snapshot_result = rebuild_dashboard_snapshot()
         start_image_index_build(APP_CONFIG["image_root"])
         resolve_image_path.cache_clear()
         return {
@@ -813,6 +815,8 @@ def reload_dashboard_data(trigger: str = "manual") -> dict:
             "rows": len(DATA) if DATA is not None else 0,
             "images": len(IMAGE_INDEX),
             "image_index_ready": IMAGE_INDEX_READY,
+            "snapshot_rows": snapshot_result.get("rows", 0),
+            "snapshot_dates": snapshot_result.get("snapshot_dates", []),
             "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
