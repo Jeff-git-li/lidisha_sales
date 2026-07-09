@@ -24,6 +24,12 @@ FILTER_COLUMN_MAP = {
     "price_band": "price_band",
 }
 
+DEFAULT_SCOPE = "women"
+SCOPE_CATEGORY_MAP = {
+    "women": "女装",
+    "all": None,
+}
+
 
 def normalize_filter_values(filters: Mapping[str, Any] | None) -> dict[str, list[str]]:
     normalized: dict[str, list[str]] = {}
@@ -70,6 +76,15 @@ def build_core_product_filter(core_only: bool = True) -> str:
     return "COALESCE(NULLIF(TRIM(year), ''), '') <> '' AND COALESCE(NULLIF(TRIM(season_name), ''), '') <> ''"
 
 
+def build_scope_filter(filters: Mapping[str, Any] | None) -> tuple[str, list[Any]]:
+    normalized = normalize_filter_values(filters)
+    scope = normalized.get("scope", [DEFAULT_SCOPE])[0] if normalized.get("scope") else DEFAULT_SCOPE
+    category_name = SCOPE_CATEGORY_MAP.get(scope, SCOPE_CATEGORY_MAP[DEFAULT_SCOPE])
+    if category_name is None:
+        return "", []
+    return " AND COALESCE(NULLIF(TRIM(category_name), ''), '') = ?", [category_name]
+
+
 def build_dimension_joins() -> str:
     return """
         LEFT JOIN dim_product p ON f.product_code = p.product_code
@@ -87,6 +102,11 @@ def build_where_clause(filters: Mapping[str, Any] | None, core_only: bool = True
     normalized = normalize_filter_values(filters)
     clauses: list[str] = []
     params: list[Any] = []
+
+    scope_clause, scope_params = build_scope_filter(normalized)
+    if scope_clause:
+        clauses.append(scope_clause.lstrip(" AND "))
+        params.extend(scope_params)
 
     date_clause, date_params = build_date_filter(normalized)
     if date_clause:
