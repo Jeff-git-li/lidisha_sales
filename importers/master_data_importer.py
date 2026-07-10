@@ -14,8 +14,10 @@ logger = get_logger(__name__)
 
 PRODUCT_SHEET = "颜色尺码(&X)"
 MASTER_SHEET = "客户设置"
+WAREHOUSE_SHEET = "仓库"
 PRODUCT_HEADER_ROW = 3
 MASTER_HEADER_ROW = 3
+WAREHOUSE_HEADER_ROW = 3
 
 DESIRED_TABLE_COLUMNS = {
     "dim_product": [
@@ -112,9 +114,32 @@ DESIRED_TABLE_COLUMNS = {
         "region_name",
         "province",
         "city",
+        "specified_warehouse_code",
+        "specified_warehouse_name",
         "open_date",
         "close_date",
         "imported_at",
+        "updated_at",
+    ],
+    "dim_warehouse": [
+        "warehouse_code",
+        "warehouse_name",
+        "original_code",
+        "warehouse_nature",
+        "warehouse_category_code",
+        "warehouse_category_name",
+        "region_code",
+        "region_name",
+        "channel_code",
+        "channel_name",
+        "warehouse_function",
+        "warehouse_attribute_code",
+        "warehouse_attribute_name",
+        "is_disabled",
+        "mapped_store_code",
+        "mapped_store_name",
+        "is_store_warehouse",
+        "source_file",
         "updated_at",
     ],
     "dim_channel": [
@@ -153,6 +178,7 @@ TABLE_CONFLICT_TARGETS = {
     "dim_product": ["product_code"],
     "dim_product_option": ["product_code", "option_type", "option_value"],
     "dim_store": ["store_code"],
+    "dim_warehouse": ["warehouse_code"],
     "dim_channel": ["channel_code"],
     "dim_calendar": ["date_key"],
 }
@@ -244,6 +270,29 @@ def _split_detail(value: str) -> list[str]:
     for separator in (",", "，", ";", "；", "|", "、", "/"):
         normalized = normalized.replace(separator, ",")
     return [item.strip() for item in normalized.split(",") if item.strip()]
+
+
+def _store_warehouse_lookup(path: str | Path) -> dict[str, tuple[str, str]]:
+    _, records = _load_sheet(path, MASTER_SHEET, MASTER_HEADER_ROW)
+    lookup: dict[str, tuple[str, str]] = {}
+    for record in records:
+        warehouse_code = _text(record.get("指定仓库"))
+        if not warehouse_code:
+            continue
+        warehouse_name = _text(record.get("指定仓库名称"))
+        store_code = _text(record.get("代码"))
+        store_name = _text(record.get("名称"))
+        lookup.setdefault(warehouse_code, (store_code, store_name))
+    return lookup
+
+
+def _last_non_empty_pair(record: dict[str, str], pairs: list[tuple[str, str]]) -> tuple[str, str]:
+    for code_key, name_key in reversed(pairs):
+        code = _text(record.get(code_key))
+        name = _text(record.get(name_key))
+        if code or name:
+            return code, name
+    return "", ""
 
 
 def _safe_hash(parts: list[str]) -> str:
@@ -428,9 +477,38 @@ def create_master_tables(conn) -> None:
             region_name TEXT,
             province TEXT,
             city TEXT,
+            specified_warehouse_code TEXT,
+            specified_warehouse_name TEXT,
             open_date TEXT,
             close_date TEXT,
             imported_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """,
+    )
+    _recreate_table_if_needed(
+        conn,
+        "dim_warehouse",
+        """
+        CREATE TABLE IF NOT EXISTS dim_warehouse (
+            warehouse_code TEXT PRIMARY KEY,
+            warehouse_name TEXT,
+            original_code TEXT,
+            warehouse_nature TEXT,
+            warehouse_category_code TEXT,
+            warehouse_category_name TEXT,
+            region_code TEXT,
+            region_name TEXT,
+            channel_code TEXT,
+            channel_name TEXT,
+            warehouse_function TEXT,
+            warehouse_attribute_code TEXT,
+            warehouse_attribute_name TEXT,
+            is_disabled INTEGER,
+            mapped_store_code TEXT,
+            mapped_store_name TEXT,
+            is_store_warehouse INTEGER,
+            source_file TEXT,
             updated_at TEXT NOT NULL
         );
         """,
@@ -688,6 +766,8 @@ def import_stores(conn, path: str | Path) -> ImportResult:
             _text(record.get("区域名称")),
             _text(record.get("省")),
             _text(record.get("市")),
+            _text(record.get("指定仓库")),
+            _text(record.get("指定仓库名称")),
             None,
             _date(record.get("业务截止日期")),
             imported_at,
@@ -703,6 +783,8 @@ def import_stores(conn, path: str | Path) -> ImportResult:
         "region_name",
         "province",
         "city",
+        "specified_warehouse_code",
+        "specified_warehouse_name",
         "open_date",
         "close_date",
         "imported_at",
@@ -710,6 +792,82 @@ def import_stores(conn, path: str | Path) -> ImportResult:
     ]
     count = _upsert(conn, "dim_store", columns, rows, conflict_columns=["store_code"])
     return ImportResult("dim_store", len(records), count)
+
+
+def import_warehouses(conn, path: str | Path, store_lookup: dict[str, tuple[str, str]] | None = None) -> ImportResult:
+    _, records = _load_sheet(path, WAREHOUSE_SHEET, WAREHOUSE_HEADER_ROW)
+    rows = []
+    imported_at = datetime.now().isoformat(timespec="seconds")
+    if store_lookup is None:
+        store_lookup = {}
+        if _existing_columns(conn, "dim_store"):
+            store_rows = conn.execute(
+                "SELECT store_code, store_name, specified_warehouse_code, specified_warehouse_name FROM dim_store"
+            ).fetchall()
+            for row in store_rows:
+                warehouse_code = _text(row[2])
+                if warehouse_code and warehouse_code not in store_lookup:
+                    store_lookup[warehouse_code] = (_text(row[0]), _text(row[1]))
+
+    for record in records:
+        warehouse_code = _text(record.get("代码"))
+        if not warehouse_code:
+            continue
+        attribute_pairs = [
+            ("仓库属性1", "仓库属性1名称"),
+            ("仓库属性2", "仓库属性2名称"),
+            ("仓库属性3", "仓库属性3名称"),
+            ("仓库属性4", "仓库属性4名称"),
+            ("仓库属性5", "仓库属性5名称"),
+            ("仓库属性6", "仓库属性6名称"),
+        ]
+        warehouse_attribute_code, warehouse_attribute_name = _last_non_empty_pair(record, attribute_pairs)
+        mapped_store_code, mapped_store_name = store_lookup.get(warehouse_code, ("", ""))
+        rows.append((
+            warehouse_code,
+            _text(record.get("名称")),
+            _text(record.get("原代码")),
+            _text(record.get("性质")),
+            _text(record.get("类别")),
+            _text(record.get("类别名称")),
+            _text(record.get("区域")),
+            _text(record.get("区域名称")),
+            _text(record.get("渠道")),
+            _text(record.get("渠道名称")),
+            _text(record.get("仓库职能")),
+            warehouse_attribute_code,
+            warehouse_attribute_name,
+            1 if _text(record.get("停止使用")) in {"1", "是", "Y", "y", "true", "TRUE"} else 0,
+            mapped_store_code,
+            mapped_store_name,
+            1 if mapped_store_code else 0,
+            str(Path(path).resolve()),
+            imported_at,
+        ))
+
+    columns = [
+        "warehouse_code",
+        "warehouse_name",
+        "original_code",
+        "warehouse_nature",
+        "warehouse_category_code",
+        "warehouse_category_name",
+        "region_code",
+        "region_name",
+        "channel_code",
+        "channel_name",
+        "warehouse_function",
+        "warehouse_attribute_code",
+        "warehouse_attribute_name",
+        "is_disabled",
+        "mapped_store_code",
+        "mapped_store_name",
+        "is_store_warehouse",
+        "source_file",
+        "updated_at",
+    ]
+    count = _upsert(conn, "dim_warehouse", columns, rows, conflict_columns=["warehouse_code"])
+    return ImportResult("dim_warehouse", len(records), count)
 
 
 def import_channels(conn, path: str | Path) -> ImportResult:
@@ -1186,17 +1344,24 @@ def ensure_sales_table(conn) -> None:
 
 def table_counts(conn) -> dict[str, int]:
     counts = {}
-    for table_name in ("dim_product", "dim_product_option", "dim_store", "dim_channel", "dim_calendar"):
+    for table_name in ("dim_product", "dim_product_option", "dim_store", "dim_warehouse", "dim_channel", "dim_calendar"):
         row = conn.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
         counts[table_name] = int(row[0]) if row else 0
     return counts
 
 
-def import_master_data(products: str | None = None, stores: str | None = None, channels: str | None = None, calendar_only: bool = False, calendar_start: str = "2020-01-01", calendar_end: str = "2035-12-31") -> dict[str, int]:
+def import_master_data(products: str | None = None, stores: str | None = None, channels: str | None = None, warehouses: str | None = None, calendar_only: bool = False, calendar_start: str = "2020-01-01", calendar_end: str = "2035-12-31") -> dict[str, int]:
     with get_db_connection() as conn:
         create_master_tables(conn)
         results: dict[str, int] = {}
         if not calendar_only:
+            warehouse_lookup: dict[str, tuple[str, str]] | None = None
+            if stores:
+                warehouse_lookup = _store_warehouse_lookup(stores)
+            if warehouses:
+                result = import_warehouses(conn, warehouses, store_lookup=warehouse_lookup)
+                logger.info("Imported %s rows into %s", result.rows_upserted, result.table_name)
+                results[result.table_name] = result.rows_upserted
             if products:
                 result = import_products(conn, products)
                 logger.info("Imported %s rows into %s", result.rows_upserted, result.table_name)

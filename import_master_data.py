@@ -11,6 +11,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--products", type=str, help="Path to 商品.xlsx")
     parser.add_argument("--stores", type=str, help="Path to 商店.xlsx")
     parser.add_argument("--channels", type=str, help="Path to 渠道.xlsx")
+    parser.add_argument("--warehouses", type=str, help="Path to 仓库.xlsx")
     parser.add_argument("--calendar-only", action="store_true", help="Only regenerate dim_calendar")
     parser.add_argument("--calendar-start", type=str, default="2020-01-01", help="Calendar start date in YYYY-MM-DD format")
     parser.add_argument("--calendar-end", type=str, default="2035-12-31", help="Calendar end date in YYYY-MM-DD format")
@@ -23,6 +24,7 @@ def main() -> None:
         products=args.products,
         stores=args.stores,
         channels=args.channels,
+        warehouses=args.warehouses,
         calendar_only=args.calendar_only,
         calendar_start=args.calendar_start,
         calendar_end=args.calendar_end,
