@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% set scope_label = '女装' if selected_scope == 'women' else '全部' %}
+{% set summary_title = '一级分类结构' if selected_scope == 'women' else '品类结构' %}
+{% macro money_display(value) -%}
+  {%- set amount = value or 0 -%}
+  {%- if amount >= 100000000 -%}
+    ¥{{ '{:.2f}'.format(amount / 100000000) }}亿
+  {%- elif amount >= 10000 -%}
+    ¥{{ '{:.2f}'.format(amount / 10000) }}万
+  {%- else -%}
+    ¥{{ '{:,.2f}'.format(amount) }}
+  {%- endif -%}
+{%- endmacro %}
+
+<section class="page-card quarter-hero">
+  <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3">
+    <div>
+      <div class="text-muted small mb-2">库存分析</div>
+      <h1 class="mb-2">库存分析</h1>
+      <p class="mb-0 text-muted">查看当前库存规模、仓库分布、商品库存及库存结构。</p>
+    </div>
+    <div class="d-flex flex-column align-items-xl-end gap-2">
+      <div class="quarter-period-box text-xl-end">
+        <div class="text-muted small">当前库存快照</div>
+        <div class="fw-semibold fs-5">{{ period.label }}</div>
+        <div class="text-muted small">{{ period.inventory_date }}</div>
+      </div>
+      <div class="btn-group" role="group" aria-label="库存范围切换">
+        <a class="btn btn-{% if selected_scope == 'women' %}primary{% else %}outline-secondary{% endif %}" href="{{ url_for('inventory.inventory_page') }}">女装</a>
+        <a class="btn btn-{% if selected_scope == 'all' %}primary{% else %}outline-secondary{% endif %}" href="{{ url_for('inventory.inventory_page', scope='all') }}">全部</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="row g-3 mt-4 quarter-kpi-grid">
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">当前库存额</div>
+      <div class="quarter-kpi-value">{{ money_display(kpis.current_inventory_amount) }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">当前库存量</div>
+      <div class="quarter-kpi-value">{{ '{:,.0f}'.format(kpis.current_inventory_qty or 0) }} 件</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">库存商品数</div>
+      <div class="quarter-kpi-value">{{ '{:,.0f}'.format(kpis.inventory_sku_count or 0) }} 款</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-6">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">仓库数量</div>
+      <div class="quarter-kpi-value">{{ '{:,.0f}'.format(kpis.warehouse_count or 0) }} 个</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-6">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">门店仓数量</div>
+      <div class="quarter-kpi-value">{{ '{:,.0f}'.format(kpis.store_warehouse_count or 0) }} 个</div>
+    </div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">库存商品前20</h2>
+      <div class="text-muted small">按库存额排序</div>
+    </div>
+    <div class="text-muted small">点击商品名称或详情进入商品页</div>
+  </div>
+  <div class="table-responsive quarter-table-wrap">
+    <table class="table table-hover align-middle quarter-top-table mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>排名</th>
+          <th>商品图</th>
+          <th>商品名称</th>
+          <th>商品编码</th>
+          <th class="text-end">库存量</th>
+          <th class="text-end">库存额</th>
+          <th class="text-end">仓库覆盖</th>
+          <th class="text-end">平均成本</th>
+          <th>详情</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in top_products %}
+          <tr>
+            <td class="quarter-rank">{{ row.rank }}</td>
+            <td class="quarter-thumb-cell">
+              {% if row.image_url %}
+                <img src="{{ row.image_url }}" alt="{{ row.product_name }}" class="thumb quarter-thumb" loading="lazy" />
+              {% else %}
+                <span class="text-muted small">暂无</span>
+              {% endif %}
+            </td>
+            <td>
+              <a class="quarter-product-link" href="{{ url_for('products.product_detail', product_code=row.product_code) }}">{{ row.product_name }}</a>
+            </td>
+            <td><span class="quarter-code">{{ row.product_code }}</span></td>
+            <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
+            <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
+            <td class="text-end">{{ '{:,.0f}'.format(row.warehouse_coverage or 0) }} 个</td>
+            <td class="text-end">¥{{ '{:,.2f}'.format(row.average_cost or 0) }}</td>
+            <td><a class="btn btn-sm btn-outline-primary quarter-detail-btn" href="{{ url_for('products.product_detail', product_code=row.product_code) }}">详情</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="row g-3 mt-4">
+  <div class="col-12 col-xl-6">
+    <div class="page-card h-100 quarter-summary-card">
+      <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <h2 class="section-title-xl mb-0">仓库排行</h2>
+        <div class="text-muted small">按库存额</div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle quarter-mini-table mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>名称</th>
+              <th class="text-end">库存额</th>
+              <th class="text-end">库存量</th>
+              <th class="text-end">SKU数</th>
+              <th>类型</th>
+              <th>门店仓</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in warehouse_ranking %}
+              <tr>
+                <td>{{ row.warehouse_name }}</td>
+                <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
+                <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
+                <td class="text-end">{{ '{:,.0f}'.format(row.sku_count or 0) }} 款</td>
+                <td>{{ row.warehouse_type }}</td>
+                <td>{{ '是' if row.is_store_warehouse else '否' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="page-card h-100 quarter-summary-card">
+      <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <h2 class="section-title-xl mb-0">门店库存排行</h2>
+        <div class="text-muted small">按库存额</div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle quarter-mini-table mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>门店</th>
+              <th class="text-end">库存额</th>
+              <th class="text-end">库存量</th>
+              <th class="text-end">SKU数</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in store_ranking %}
+              <tr>
+                <td>{{ row.store_name }}</td>
+                <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
+                <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
+                <td class="text-end">{{ '{:,.0f}'.format(row.sku_count or 0) }} 款</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="row g-3 mt-4">
+  <div class="col-12 col-xl-4">
+    <div class="page-card h-100 quarter-summary-card">
+      <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <h2 class="section-title-xl mb-0">区域贡献</h2>
+        <div class="text-muted small">按库存额</div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle quarter-mini-table mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>名称</th>
+              <th class="text-end">库存额</th>
+              <th class="text-end">库存量</th>
+              <th class="text-end">占比</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in region_summary %}
+              <tr>
+                <td>{{ row.region_name }}</td>
+                <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
+                <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
+                <td class="text-end">{{ '{:.1%}'.format(row.contribution_rate or 0) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="page-card h-100 quarter-summary-card">
+      <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <h2 class="section-title-xl mb-0">{{ summary_title }}</h2>
+        <div class="text-muted small">按库存额</div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle quarter-mini-table mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>名称</th>
+              <th class="text-end">库存额</th>
+              <th class="text-end">库存量</th>
+              <th class="text-end">占比</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in category_summary %}
+              <tr>
+                <td>{{ row.category_name }}</td>
+                <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
+                <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
+                <td class="text-end">{{ '{:.1%}'.format(row.contribution_rate or 0) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="page-card h-100 quarter-summary-card">
+      <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <h2 class="section-title-xl mb-0">波段表现</h2>
+        <div class="text-muted small">按库存额</div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle quarter-mini-table mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>名称</th>
+              <th class="text-end">库存额</th>
+              <th class="text-end">库存量</th>
+              <th class="text-end">占比</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in wave_summary %}
+              <tr>
+                <td>{{ row.wave_name }}</td>
+                <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
+                <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
+                <td class="text-end">{{ '{:.1%}'.format(row.contribution_rate or 0) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
