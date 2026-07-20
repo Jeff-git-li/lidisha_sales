@@ -13,6 +13,22 @@
     ¥{{ '{:,.2f}'.format(amount) }}
   {%- endif -%}
 {%- endmacro %}
+{% macro optional_number_display(value, suffix='') -%}
+  {%- if value is none -%}
+    --
+  {%- elif value == value -%}
+    {{ '{:,.0f}'.format(value) }}{{ suffix }}
+  {%- else -%}
+    --
+  {%- endif -%}
+{%- endmacro %}
+{% macro optional_ratio_display(value) -%}
+  {%- if value is none -%}
+    --
+  {%- else -%}
+    {{ '{:.1%}'.format(value) }}
+  {%- endif -%}
+{%- endmacro %}
 
 <section class="page-card quarter-hero">
   <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3">
@@ -27,44 +43,127 @@
         <div class="fw-semibold fs-5">{{ period.label }}</div>
         <div class="text-muted small">{{ period.inventory_date }}</div>
       </div>
-      <div class="btn-group" role="group" aria-label="库存范围切换">
-        <a class="btn btn-{% if selected_scope == 'women' %}primary{% else %}outline-secondary{% endif %}" href="{{ url_for('inventory.inventory_page') }}">女装</a>
-        <a class="btn btn-{% if selected_scope == 'all' %}primary{% else %}outline-secondary{% endif %}" href="{{ url_for('inventory.inventory_page', scope='all') }}">全部</a>
+    </div>
+  </div>
+</section>
+
+<section class="page-card mt-4 border border-info-subtle bg-info-subtle">
+  <div class="d-flex align-items-start gap-3">
+    <div class="text-info fs-4 lh-1 pt-1">i</div>
+    <div>
+      <div class="fw-semibold text-info mb-2">库存数据说明</div>
+      <div class="text-muted small">
+        <p class="mb-0">库存数据来源于 OMS 库存快照。部分渠道或门店未完整执行出入库流程，因此系统库存可能高于实际库存。本页面主要用于渠道比较、库存结构和近期动销分析，不作为财务库存依据。</p>
       </div>
     </div>
   </div>
 </section>
 
+<section class="page-card mt-4">
+  <div class="btn-group mb-3" role="group" aria-label="库存范围切换">
+    <a class="btn btn-{% if selected_scope == 'women' %}primary{% else %}outline-secondary{% endif %}" href="{{ url_for('inventory.inventory_page', scope='women', channel_code=selected_channel_code, store_code=selected_store_code) }}">女装</a>
+    <a class="btn btn-{% if selected_scope == 'all' %}primary{% else %}outline-secondary{% endif %}" href="{{ url_for('inventory.inventory_page', scope='all', channel_code=selected_channel_code, store_code=selected_store_code) }}">全部</a>
+  </div>
+  <form method="get" action="{{ url_for('inventory.inventory_page') }}" class="row g-3 align-items-end">
+    <input type="hidden" name="scope" value="{{ selected_scope }}" />
+    <div class="col-12 col-lg-4">
+      <label class="form-label fw-semibold">分析渠道</label>
+      <select class="form-select" name="channel_code" id="inventory-channel-select">
+        <option value="">全部渠道</option>
+        {% for option in channel_options %}
+          <option value="{{ option.channel_code }}" {% if selected_channel_code == option.channel_code %}selected{% endif %}>{{ option.channel_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-lg-4">
+      <label class="form-label fw-semibold">分析门店</label>
+      <select class="form-select" name="store_code" id="inventory-store-select" {% if not selected_channel_code %}disabled{% endif %}>
+        <option value="">全部门店</option>
+        {% for option in store_options %}
+          <option value="{{ option.store_code }}" {% if selected_store_code == option.store_code %}selected{% endif %}>{{ option.store_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-lg-4 d-flex gap-2">
+      <button class="btn btn-primary flex-grow-1" type="submit">查看库存</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('inventory.inventory_page', scope=selected_scope) }}">重置筛选</a>
+    </div>
+  </form>
+</section>
+
+<section class="mt-3">
+  {% if filter_warning %}
+    <div class="alert alert-warning py-2 px-3 small mb-0">{{ filter_warning }}</div>
+  {% endif %}
+</section>
+
 <section class="row g-3 mt-4 quarter-kpi-grid">
-  <div class="col-12 col-md-6 col-xxl-4">
+  <div class="col-12 col-md-6 col-xxl-3">
     <div class="page-card quarter-kpi-card h-100">
-      <div class="text-muted small">当前库存额</div>
+      <div class="text-muted small">库存价值</div>
       <div class="quarter-kpi-value">{{ money_display(kpis.current_inventory_amount) }}</div>
     </div>
   </div>
-  <div class="col-12 col-md-6 col-xxl-4">
+  <div class="col-12 col-md-6 col-xxl-3">
     <div class="page-card quarter-kpi-card h-100">
-      <div class="text-muted small">当前库存量</div>
+      <div class="text-muted small">库存数量</div>
       <div class="quarter-kpi-value">{{ '{:,.0f}'.format(kpis.current_inventory_qty or 0) }} 件</div>
     </div>
   </div>
-  <div class="col-12 col-md-6 col-xxl-4">
+  <div class="col-12 col-md-6 col-xxl-3">
     <div class="page-card quarter-kpi-card h-100">
-      <div class="text-muted small">库存商品数</div>
+      <div class="text-muted small">活跃产品</div>
       <div class="quarter-kpi-value">{{ '{:,.0f}'.format(kpis.inventory_sku_count or 0) }} 款</div>
     </div>
   </div>
-  <div class="col-12 col-md-6 col-xxl-6">
+  <div class="col-12 col-md-6 col-xxl-3">
     <div class="page-card quarter-kpi-card h-100">
-      <div class="text-muted small">仓库数量</div>
-      <div class="quarter-kpi-value">{{ '{:,.0f}'.format(kpis.warehouse_count or 0) }} 个</div>
-    </div>
-  </div>
-  <div class="col-12 col-md-6 col-xxl-6">
-    <div class="page-card quarter-kpi-card h-100">
-      <div class="text-muted small">门店仓数量</div>
+      <div class="text-muted small">门店数</div>
       <div class="quarter-kpi-value">{{ '{:,.0f}'.format(kpis.store_warehouse_count or 0) }} 个</div>
     </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">近30天销量</div>
+      <div class="quarter-kpi-value">{{ optional_number_display(kpis.last_30_days_sales, ' 件') }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">近30天动销率</div>
+      <div class="quarter-kpi-value">{{ optional_ratio_display(kpis.sell_through_rate) }}</div>
+      <div class="text-muted small mt-2">近30天销量 ÷（近30天销量 + 当前库存）</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">按近30天销量估算库存天数</div>
+      <div class="quarter-kpi-value">{{ optional_number_display(kpis.inventory_days, ' 天') }}</div>
+      <div class="text-muted small mt-2">当前库存 ÷ 近30天日均销量</div>
+    </div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">近30天库存动销状态</h2>
+      <div class="text-muted small">基于近30天销量与当前库存划分，仅反映近期动销情况，不代表商品全生命周期售罄表现。</div>
+    </div>
+  </div>
+  <div class="row g-3">
+    {% for row in health_summary %}
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="page-card h-100 border-start border-4 border-{{ row.color_class }}">
+          <div class="d-flex flex-column gap-2">
+            <div class="fw-semibold">{{ row.health_name }}</div>
+            <div class="small text-muted">商品数：{{ '{:,.0f}'.format(row.sku_count or 0) }} 款</div>
+            <div class="small text-muted">库存件数：{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</div>
+            <div class="small text-muted">库存金额：{{ money_display(row.inventory_amount) }}</div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
   </div>
 </section>
 
@@ -132,7 +231,7 @@
               <th>名称</th>
               <th class="text-end">库存额</th>
               <th class="text-end">库存量</th>
-              <th class="text-end">SKU数</th>
+              <th class="text-end">商品数</th>
               <th>类型</th>
               <th>门店仓</th>
             </tr>
@@ -166,7 +265,7 @@
               <th>门店</th>
               <th class="text-end">库存额</th>
               <th class="text-end">库存量</th>
-              <th class="text-end">SKU数</th>
+              <th class="text-end">商品数</th>
             </tr>
           </thead>
           <tbody>
@@ -186,37 +285,41 @@
 </section>
 
 <section class="row g-3 mt-4">
-  <div class="col-12 col-xl-4">
+  <div class="col-12 col-xl-6">
     <div class="page-card h-100 quarter-summary-card">
       <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
         <h2 class="section-title-xl mb-0">区域贡献</h2>
         <div class="text-muted small">按库存额</div>
       </div>
-      <div class="table-responsive">
-        <table class="table table-sm align-middle quarter-mini-table mb-0">
-          <thead class="table-light">
-            <tr>
-              <th>名称</th>
-              <th class="text-end">库存额</th>
-              <th class="text-end">库存量</th>
-              <th class="text-end">占比</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in region_summary %}
+      {% if selected_channel_code %}
+        <div class="alert alert-info small mb-0">该渠道主要在固定区域内运营，已隐藏区域贡献分析。</div>
+      {% else %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle quarter-mini-table mb-0">
+            <thead class="table-light">
               <tr>
-                <td>{{ row.region_name }}</td>
-                <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
-                <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
-                <td class="text-end">{{ '{:.1%}'.format(row.contribution_rate or 0) }}</td>
+                <th>名称</th>
+                <th class="text-end">库存额</th>
+                <th class="text-end">库存量</th>
+                <th class="text-end">占比</th>
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {% for row in region_summary %}
+                <tr>
+                  <td>{{ row.region_name }}</td>
+                  <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
+                  <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
+                  <td class="text-end">{{ '{:.1%}'.format(row.contribution_rate or 0) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
     </div>
   </div>
-  <div class="col-12 col-xl-4">
+  <div class="col-12 col-xl-6">
     <div class="page-card h-100 quarter-summary-card">
       <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
         <h2 class="section-title-xl mb-0">{{ summary_title }}</h2>
@@ -246,35 +349,23 @@
       </div>
     </div>
   </div>
-  <div class="col-12 col-xl-4">
-    <div class="page-card h-100 quarter-summary-card">
-      <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
-        <h2 class="section-title-xl mb-0">波段表现</h2>
-        <div class="text-muted small">按库存额</div>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm align-middle quarter-mini-table mb-0">
-          <thead class="table-light">
-            <tr>
-              <th>名称</th>
-              <th class="text-end">库存额</th>
-              <th class="text-end">库存量</th>
-              <th class="text-end">占比</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in wave_summary %}
-              <tr>
-                <td>{{ row.wave_name }}</td>
-                <td class="text-end">{{ money_display(row.inventory_amount) }}</td>
-                <td class="text-end">{{ '{:,.0f}'.format(row.inventory_qty or 0) }} 件</td>
-                <td class="text-end">{{ '{:.1%}'.format(row.contribution_rate or 0) }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
 </section>
+
+<script>
+  (function () {
+    const channelSelect = document.getElementById('inventory-channel-select');
+    const storeSelect = document.getElementById('inventory-store-select');
+    if (!channelSelect || !storeSelect) {
+      return;
+    }
+    channelSelect.addEventListener('change', function () {
+      if (!this.value) {
+        storeSelect.value = '';
+        storeSelect.disabled = true;
+      } else {
+        storeSelect.disabled = false;
+      }
+    });
+  })();
+</script>
 {% endblock %}
