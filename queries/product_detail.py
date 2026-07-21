@@ -18,14 +18,15 @@ from semantic.product_detail import (
 )
 
 
-def _base_filters(product_code: str, filters: dict[str, Any] | None = None) -> dict[str, Any]:
+def _detail_filters(product_code: str, filters: dict[str, Any] | None = None) -> dict[str, Any]:
     query_filters = dict(filters or {})
+    query_filters["scope"] = ["all"]
     query_filters["product_code"] = [product_code]
     return query_filters
 
 
 def get_product_detail(product_code: str, filters: dict[str, Any] | None = None) -> ProductDetail:
-    base_filters = _base_filters(product_code, filters)
+    base_filters = _detail_filters(product_code, filters)
     where_sql, params = build_where_clause(base_filters, core_only=False)
     sql = f"""
     WITH joined AS (
@@ -134,7 +135,7 @@ def get_product_sales_summary(product_code: str, filters: dict[str, Any] | None 
 
 
 def get_product_sales_trend(product_code: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    where_sql, params = build_where_clause(_base_filters(product_code, filters), core_only=False)
+    where_sql, params = build_where_clause(_detail_filters(product_code, filters), core_only=False)
     sql = f"""
     SELECT
         f.sale_date,
@@ -151,7 +152,7 @@ def get_product_sales_trend(product_code: str, filters: dict[str, Any] | None = 
 
 
 def get_product_color_distribution(product_code: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    where_sql, params = build_where_clause(_base_filters(product_code, filters), core_only=False)
+    where_sql, params = build_where_clause(_detail_filters(product_code, filters), core_only=False)
     sql = f"""
     SELECT
         f.color_code,
@@ -168,7 +169,7 @@ def get_product_color_distribution(product_code: str, filters: dict[str, Any] | 
 
 
 def get_product_size_distribution(product_code: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    where_sql, params = build_where_clause(_base_filters(product_code, filters), core_only=False)
+    where_sql, params = build_where_clause(_detail_filters(product_code, filters), core_only=False)
     sql = f"""
     SELECT
         f.size_code,
@@ -185,7 +186,7 @@ def get_product_size_distribution(product_code: str, filters: dict[str, Any] | N
 
 
 def get_product_region_distribution(product_code: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    where_sql, params = build_where_clause(_base_filters(product_code, filters), core_only=False)
+    where_sql, params = build_where_clause(_detail_filters(product_code, filters), core_only=False)
     sql = f"""
     SELECT
         COALESCE(s.region_name, '未分区') AS region_name,
@@ -202,7 +203,7 @@ def get_product_region_distribution(product_code: str, filters: dict[str, Any] |
 
 
 def get_product_store_distribution(product_code: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    where_sql, params = build_where_clause(_base_filters(product_code, filters), core_only=False)
+    where_sql, params = build_where_clause(_detail_filters(product_code, filters), core_only=False)
     sql = f"""
     SELECT
         f.store_code,
@@ -221,7 +222,7 @@ def get_product_store_distribution(product_code: str, filters: dict[str, Any] | 
 
 
 def get_product_latest_activity(product_code: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    where_sql, params = build_where_clause(_base_filters(product_code, filters), core_only=False)
+    where_sql, params = build_where_clause(_detail_filters(product_code, filters), core_only=False)
     sql = f"""
     SELECT
         f.sale_date,

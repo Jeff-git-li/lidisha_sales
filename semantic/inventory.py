@@ -22,12 +22,20 @@ def _as_int(value: Any) -> int:
 class InventoryPeriod:
     inventory_date: str
     label: str
+    inventory_snapshot_date: str = ""
+    latest_sales_date: str = ""
+    effective_sales_date: str = ""
+    quarter_start_date: str = ""
 
     @classmethod
     def from_query_row(cls, row: Mapping[str, Any]) -> "InventoryPeriod":
         return cls(
             inventory_date=str(row.get("inventory_date", "") or ""),
             label=str(row.get("label", "") or ""),
+            inventory_snapshot_date=str(row.get("inventory_snapshot_date", "") or ""),
+            latest_sales_date=str(row.get("latest_sales_date", "") or ""),
+            effective_sales_date=str(row.get("effective_sales_date", "") or ""),
+            quarter_start_date=str(row.get("quarter_start_date", "") or ""),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +52,8 @@ class InventoryKPI:
     last_30_days_sales: float | None = None
     sell_through_rate: float | None = None
     inventory_days: float | None = None
+    quarter_sell_through_rate: float | None = None
+    cumulative_sell_through_rate: float | None = None
     sales_available: bool = False
 
     @classmethod
@@ -57,6 +67,8 @@ class InventoryKPI:
             last_30_days_sales=(None if row.get("last_30_days_sales") is None else _as_float(row.get("last_30_days_sales"))),
             sell_through_rate=(None if row.get("sell_through_rate") is None else _as_float(row.get("sell_through_rate"))),
             inventory_days=(None if row.get("inventory_days") is None else _as_float(row.get("inventory_days"))),
+            quarter_sell_through_rate=(None if row.get("quarter_sell_through_rate") is None else _as_float(row.get("quarter_sell_through_rate"))),
+            cumulative_sell_through_rate=(None if row.get("cumulative_sell_through_rate") is None else _as_float(row.get("cumulative_sell_through_rate"))),
             sales_available=bool(row.get("sales_available", False)),
         )
 
@@ -169,6 +181,10 @@ class InventoryCategorySummary:
     category_name: str
     inventory_amount: float = 0.0
     inventory_qty: float = 0.0
+    quarter_sales_qty: float = 0.0
+    cumulative_sales_qty: float = 0.0
+    quarter_sell_through_rate: float | None = None
+    cumulative_sell_through_rate: float | None = None
     contribution_rate: float = 0.0
 
     @classmethod
@@ -177,6 +193,10 @@ class InventoryCategorySummary:
             category_name=str(row.get("category_name", "") or "未分类"),
             inventory_amount=_as_float(row.get("inventory_amount")),
             inventory_qty=_as_float(row.get("inventory_qty")),
+            quarter_sales_qty=_as_float(row.get("quarter_sales_qty")),
+            cumulative_sales_qty=_as_float(row.get("cumulative_sales_qty")),
+            quarter_sell_through_rate=(None if row.get("quarter_sell_through_rate") is None else _as_float(row.get("quarter_sell_through_rate"))),
+            cumulative_sell_through_rate=(None if row.get("cumulative_sell_through_rate") is None else _as_float(row.get("cumulative_sell_through_rate"))),
             contribution_rate=_as_float(row.get("contribution_rate")),
         )
 
@@ -222,6 +242,38 @@ class InventoryHealthSummary:
             sku_count=_as_int(row.get("sku_count")),
             inventory_qty=_as_float(row.get("inventory_qty")),
             inventory_amount=_as_float(row.get("inventory_amount")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class InventorySellThroughProduct:
+    rank: int
+    product_code: str
+    product_name: str
+    image_url: str = ""
+    quarter_sales_qty: float = 0.0
+    current_inventory_qty: float = 0.0
+    quarter_sell_through_rate: float | None = None
+    cumulative_sales_qty: float = 0.0
+    cumulative_sell_through_rate: float | None = None
+    store_coverage: int = 0
+
+    @classmethod
+    def from_query_row(cls, row: Mapping[str, Any]) -> "InventorySellThroughProduct":
+        return cls(
+            rank=_as_int(row.get("rank")),
+            product_code=str(row.get("product_code", "") or ""),
+            product_name=str(row.get("product_name", "") or ""),
+            image_url=str(row.get("image_url", "") or ""),
+            quarter_sales_qty=_as_float(row.get("quarter_sales_qty")),
+            current_inventory_qty=_as_float(row.get("current_inventory_qty")),
+            quarter_sell_through_rate=(None if row.get("quarter_sell_through_rate") is None else _as_float(row.get("quarter_sell_through_rate"))),
+            cumulative_sales_qty=_as_float(row.get("cumulative_sales_qty")),
+            cumulative_sell_through_rate=(None if row.get("cumulative_sell_through_rate") is None else _as_float(row.get("cumulative_sell_through_rate"))),
+            store_coverage=_as_int(row.get("store_coverage")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -277,16 +329,20 @@ class InventoryAnalysisContext:
     period: InventoryPeriod
     kpis: InventoryKPI
     top_products: list[InventoryTopProduct] = field(default_factory=list)
+    sellthrough_products: list[InventorySellThroughProduct] = field(default_factory=list)
     warehouse_ranking: list[InventoryWarehouseSummary] = field(default_factory=list)
     store_ranking: list[InventoryStoreSummary] = field(default_factory=list)
     region_summary: list[InventoryRegionSummary] = field(default_factory=list)
     category_summary: list[InventoryCategorySummary] = field(default_factory=list)
     health_summary: list[InventoryHealthSummary] = field(default_factory=list)
     selected_scope: str = "women"
+    selected_inventory_basis: str = "terminal"
+    inventory_basis_label: str = "终端库存"
     selected_channel_code: str = ""
     selected_channel_name: str = ""
     selected_store_code: str = ""
     selected_store_name: str = ""
+    selected_product_sort: str = "quarter_sales_qty"
     channel_options: list[InventoryChannelOption] = field(default_factory=list)
     store_options: list[InventoryStoreOption] = field(default_factory=list)
     data_quality_note: str = "库存数据来源于 ERP 库存快照。部分渠道或门店未完整执行出入库流程，数据可能与实际库存存在偏差，请结合业务实际判断。"
@@ -297,16 +353,20 @@ class InventoryAnalysisContext:
             "period": self.period.to_dict(),
             "kpis": self.kpis.to_dict(),
             "top_products": [item.to_dict() for item in self.top_products],
+            "sellthrough_products": [item.to_dict() for item in self.sellthrough_products],
             "warehouse_ranking": [item.to_dict() for item in self.warehouse_ranking],
             "store_ranking": [item.to_dict() for item in self.store_ranking],
             "region_summary": [item.to_dict() for item in self.region_summary],
             "category_summary": [item.to_dict() for item in self.category_summary],
             "health_summary": [item.to_dict() for item in self.health_summary],
             "selected_scope": self.selected_scope,
+            "selected_inventory_basis": self.selected_inventory_basis,
+            "inventory_basis_label": self.inventory_basis_label,
             "selected_channel_code": self.selected_channel_code,
             "selected_channel_name": self.selected_channel_name,
             "selected_store_code": self.selected_store_code,
             "selected_store_name": self.selected_store_name,
+            "selected_product_sort": self.selected_product_sort,
             "channel_options": [item.to_dict() for item in self.channel_options],
             "store_options": [item.to_dict() for item in self.store_options],
             "data_quality_note": self.data_quality_note,
