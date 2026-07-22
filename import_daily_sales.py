@@ -10,7 +10,7 @@ from importers.sales_importer import DAILY_EXPORT_DIR, process_daily_sales_folde
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Import newly exported daily sales Excel files from exports/daily.")
+    parser = argparse.ArgumentParser(description="Import newly exported daily sales Excel files from exports/sales/daily.")
     parser.add_argument("--input-dir", default=str(DAILY_EXPORT_DIR), help="Daily sales folder to scan")
     parser.add_argument("--batch-size", type=int, default=10000, help="Number of sales rows per database batch")
     parser.add_argument("--json", action="store_true", help="Print the full structured result as JSON")

@@ -841,7 +841,7 @@ def _should_run_reloader_worker(reloader_enabled: bool) -> bool:
 def reload_dashboard_data(trigger: str = "manual") -> dict:
     global DATA, INVENTORY_DATA
     with DATA_REFRESH_LOCK:
-        daily_import = process_daily_sales_folder(Path(APP_CONFIG["input_dir"]) / "daily")
+        daily_import = process_daily_sales_folder(Path(APP_CONFIG["input_dir"]) / "sales" / "daily")
         INVENTORY_DATA = refresh_inventory_data()
         DATA = pd.DataFrame()
         snapshot_result = {
