@@ -32,6 +32,7 @@ from config import (
     build_app_config,
 )
 from database import get_db_connection
+from importers.sales_importer import process_daily_sales_folder
 from logging_config import configure_logging, get_logger
 from dashboard.builder import rebuild_dashboard_snapshot
 from queries.home import get_home_dashboard
@@ -804,21 +805,82 @@ def start_image_index_build(root: str):
     IMAGE_INDEX_THREAD.start()
 
 
+def _sales_row_count() -> int:
+    with get_db_connection() as conn:
+        try:
+            row = conn.execute("SELECT COUNT(*) AS row_count FROM fact_retail_sales").fetchone()
+        except sqlite3.OperationalError:
+            return 0
+    return int(row["row_count"] or 0) if row else 0
+
+
+def _snapshot_needs_rebuild() -> bool:
+    with get_db_connection() as conn:
+        try:
+            row = conn.execute("SELECT COUNT(*) AS row_count FROM dashboard_snapshot").fetchone()
+        except sqlite3.OperationalError:
+            return True
+    return not row or int(row["row_count"] or 0) == 0
+
+
+def _ensure_image_index_started() -> None:
+    if IMAGE_INDEX or IMAGE_INDEX_READY:
+        return
+    if IMAGE_INDEX_THREAD and IMAGE_INDEX_THREAD.is_alive():
+        return
+    start_image_index_build(APP_CONFIG["image_root"])
+    resolve_image_path.cache_clear()
+
+
+def _should_run_reloader_worker(reloader_enabled: bool) -> bool:
+    if not reloader_enabled:
+        return True
+    return os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+
+
 def reload_dashboard_data(trigger: str = "manual") -> dict:
     global DATA, INVENTORY_DATA
     with DATA_REFRESH_LOCK:
-        DATA = refresh_sales_data()
+        daily_import = process_daily_sales_folder(Path(APP_CONFIG["input_dir"]) / "daily")
         INVENTORY_DATA = refresh_inventory_data()
-        snapshot_result = rebuild_dashboard_snapshot()
-        start_image_index_build(APP_CONFIG["image_root"])
-        resolve_image_path.cache_clear()
+        DATA = pd.DataFrame()
+        snapshot_result = {
+            "ok": True,
+            "rebuilt": False,
+            "rows": 0,
+            "snapshot_dates": [],
+            "error": "",
+        }
+        should_rebuild_snapshot = (
+            not daily_import.get("lock_skipped", False)
+            and (
+                int(daily_import.get("imported", 0) or 0) > 0
+                or _snapshot_needs_rebuild()
+            )
+        )
+        if should_rebuild_snapshot:
+            try:
+                snapshot_payload = rebuild_dashboard_snapshot()
+                snapshot_result.update({"ok": True, "rebuilt": True, **snapshot_payload})
+            except Exception as exc:
+                logger.exception("快照重建失败：%s", exc)
+                snapshot_result.update({"ok": False, "rebuilt": True, "error": str(exc)})
+        elif daily_import.get("lock_skipped", False):
+            snapshot_result.update({"ok": False, "error": str(daily_import.get("error", "")), "skipped": True})
+        else:
+            snapshot_result.update({"skipped": True})
+        if trigger == "startup":
+            _ensure_image_index_started()
+        row_count = _sales_row_count()
         return {
             "trigger": trigger,
-            "rows": len(DATA) if DATA is not None else 0,
+            "rows": row_count,
             "images": len(IMAGE_INDEX),
             "image_index_ready": IMAGE_INDEX_READY,
             "snapshot_rows": snapshot_result.get("rows", 0),
             "snapshot_dates": snapshot_result.get("snapshot_dates", []),
+            "daily_import": daily_import,
+            "snapshot": snapshot_result,
             "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
@@ -838,13 +900,24 @@ def auto_refresh_loop():
         time.sleep(wait_seconds)
         try:
             result = reload_dashboard_data(trigger="scheduled")
-            logger.info("[%s] 每日自动刷新完成：%s行", result["loaded_at"], f"{result['rows']:,}")
+            logger.info(
+                "[%s] 每日自动刷新完成：rows=%s imported=%s skipped=%s failed=%s snapshot_ok=%s",
+                result["loaded_at"],
+                f"{result['rows']:,}",
+                result.get("daily_import", {}).get("imported", 0),
+                result.get("daily_import", {}).get("skipped", 0),
+                result.get("daily_import", {}).get("failed", 0),
+                result.get("snapshot", {}).get("ok", True),
+            )
         except Exception as exc:
             logger.exception("[%s] 每日自动刷新失败：%s", time.strftime("%Y-%m-%d %H:%M:%S"), exc)
 
 
-def start_auto_refresh_scheduler():
+def start_auto_refresh_scheduler(reloader_enabled: bool = False):
     global AUTO_REFRESH_THREAD
+    if not _should_run_reloader_worker(reloader_enabled):
+        logger.info("已跳过开发模式父进程自动刷新调度器")
+        return
     if AUTO_REFRESH_THREAD and AUTO_REFRESH_THREAD.is_alive():
         return
     AUTO_REFRESH_THREAD = threading.Thread(target=auto_refresh_loop, name="daily-auto-refresh", daemon=True)
@@ -1245,7 +1318,12 @@ def product_image(code, color):
 def api_reload():
     try:
         result = reload_dashboard_data(trigger="manual")
-        return jsonify({"ok": True, **result})
+        ok = (
+            not result.get("daily_import", {}).get("lock_skipped", False)
+            and int(result.get("daily_import", {}).get("failed", 0) or 0) == 0
+            and bool(result.get("snapshot", {}).get("ok", True))
+        )
+        return jsonify({"ok": ok, **result})
     except Exception as exc:
         logger.exception("手动刷新失败：%s", exc)
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -1269,14 +1347,17 @@ def parse_args():
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         APP_CONFIG.update({"excel_path": None, "inventory_path": None, "input_dir": DEFAULT_INPUT_DIR, "image_root": DEFAULT_IMAGE_ROOT, "top_n": DEFAULT_TOP_N})
-        try:
-            initial_result = reload_dashboard_data(trigger="startup")
-        except sqlite3.DatabaseError as exc:
-            DATA = pd.DataFrame()
-            INVENTORY_DATA = pd.DataFrame()
-            initial_result = {"rows": 0, "images": 0, "image_index_ready": False, "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")}
-            logger.warning("启动时数据加载被跳过：%s", exc)
-        start_auto_refresh_scheduler()
+        if _should_run_reloader_worker(reloader_enabled=True):
+            try:
+                initial_result = reload_dashboard_data(trigger="startup")
+            except sqlite3.DatabaseError as exc:
+                DATA = pd.DataFrame()
+                INVENTORY_DATA = pd.DataFrame()
+                initial_result = {"rows": 0, "images": 0, "image_index_ready": False, "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+                logger.warning("启动时数据加载被跳过：%s", exc)
+        else:
+            initial_result = {"rows": 0, "images": len(IMAGE_INDEX), "image_index_ready": IMAGE_INDEX_READY, "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+        start_auto_refresh_scheduler(reloader_enabled=True)
         logger.info("开发模式启动")
         logger.info("销售记录: %s 行；图片索引: %s 张；图片目录: %s", f"{initial_result['rows']:,}", f"{initial_result['images']:,}", DEFAULT_IMAGE_ROOT)
         logger.info("访问地址: http://127.0.0.1:5000")
@@ -1292,7 +1373,7 @@ if __name__ == "__main__":
             INVENTORY_DATA = pd.DataFrame()
             initial_result = {"rows": 0, "images": 0, "image_index_ready": False, "loaded_at": time.strftime("%Y-%m-%d %H:%M:%S")}
             logger.warning("启动时数据加载被跳过：%s", exc)
-        start_auto_refresh_scheduler()
+        start_auto_refresh_scheduler(reloader_enabled=False)
         logger.info("已加载Excel: %s", excel_path)
         logger.info("销售记录: %s 行；图片索引: %s 张；图片目录: %s", f"{initial_result['rows']:,}", f"{initial_result['images']:,}", args.image_root)
         logger.info("访问地址: http://127.0.0.1:%s", args.port)

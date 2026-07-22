@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from openpyxl import load_workbook
+import pandas as pd
 
 from database import get_db_connection
 from logging_config import get_logger
@@ -261,6 +262,17 @@ def _date(value) -> str | None:
         except ValueError:
             continue
     return text or None
+
+
+def _is_iso_date(value: str | None) -> bool:
+    text = _text(value)
+    if not text:
+        return False
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
 
 
 def _split_detail(value: str) -> list[str]:
@@ -1085,25 +1097,61 @@ def _find_sales_header_row(ws) -> int:
     raise ValueError("Unable to locate sales header row")
 
 
+def _load_sales_rows_xls(path: str | Path):
+    frame = pd.read_excel(path, sheet_name=0, header=None, dtype=object, engine="xlrd")
+    normalized_required = {"日期", "商品代码", "数量"}
+    header_row = 0
+    header_cells: list[str] = []
+    for index, row in frame.iterrows():
+        values = [_text(value) for value in row.tolist()]
+        if not any(values):
+            continue
+        normalized = {value for value in values if value}
+        if normalized_required.issubset(normalized):
+            header_row = int(index) + 1
+            header_cells = values
+            break
+    if not header_row:
+        raise ValueError("Unable to locate sales header row")
+    header_map = [(index, value) for index, value in enumerate(header_cells) if value]
+    headers = [value for _, value in header_map]
+    missing = [column for column in SALES_REQUIRED_COLUMNS if column not in headers]
+    if missing:
+        raise ValueError(f"Sales workbook is missing required columns: {', '.join(missing)}")
+    for row_index in range(header_row, len(frame.index)):
+        values = [_text(value) for value in frame.iloc[row_index].tolist()]
+        if not any(values):
+            continue
+        record = {header: values[column_index] if column_index < len(values) else "" for column_index, header in header_map}
+        yield header_row, row_index + 1, record
+
+
 def _load_sales_rows(path: str | Path):
+    if Path(path).suffix.lower() == ".xls":
+        yield from _load_sales_rows_xls(path)
+        return
     workbook = load_workbook(path, read_only=True, data_only=True)
     ws = workbook[workbook.sheetnames[0]]
     header_row = _find_sales_header_row(ws)
-    headers: list[str] = []
+    header_map: list[tuple[int, str]] = []
     for row_index, row in enumerate(ws.iter_rows(values_only=True), start=1):
         values = [_text(value) for value in row]
         if row_index == header_row:
-            headers = [value for value in values if value]
+            header_map = [(index, value) for index, value in enumerate(values) if value]
             break
+    headers = [value for _, value in header_map]
     if not headers:
         raise ValueError(f"Unable to read sales header row from {path}")
+    missing = [column for column in SALES_REQUIRED_COLUMNS if column not in headers]
+    if missing:
+        raise ValueError(f"Sales workbook is missing required columns: {', '.join(missing)}")
     for row_index, row in enumerate(ws.iter_rows(values_only=True), start=1):
         if row_index <= header_row:
             continue
         values = [_text(value) for value in row]
         if not any(values):
             continue
-        record = {headers[i]: values[i] if i < len(values) else "" for i in range(len(headers))}
+        record = {header: values[column_index] if column_index < len(values) else "" for column_index, header in header_map}
         yield header_row, row_index, record
 
 
@@ -1138,7 +1186,13 @@ def rebuild_sales_table(conn) -> None:
     ensure_sales_table(conn)
 
 
-def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[str, int | float | str]:
+def import_sales_file(
+    conn,
+    path: str | Path,
+    batch_size: int = 10000,
+    commit_batches: bool = True,
+    replace_source_file: bool = False,
+) -> dict[str, int | float | str | dict[str, int]]:
     ensure_sales_table(conn)
     source_path = str(Path(path).resolve())
     import_run_time = datetime.now().isoformat(timespec="seconds")
@@ -1153,11 +1207,25 @@ def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[s
     unknown_store_codes: set[str] = set()
     unknown_product_rows = 0
     unknown_store_rows = 0
+    rejected_rows = 0
+    rejection_reasons: dict[str, int] = {}
+    sales_date_min = ""
+    sales_date_max = ""
+    rows_replaced = 0
     batch_rows: list[tuple] = []
 
     product_codes = {row[0] for row in conn.execute("SELECT product_code FROM dim_product").fetchall()}
     store_codes = {row[0] for row in conn.execute("SELECT store_code FROM dim_store").fetchall()}
     store_name_to_code, store_code_to_name = _store_lookups(conn)
+
+    if replace_source_file:
+        existing_row = conn.execute(
+            "SELECT COUNT(*) FROM fact_retail_sales WHERE source_file = ?",
+            (source_path,),
+        ).fetchone()
+        rows_replaced = int(existing_row[0] or 0) if existing_row else 0
+        if rows_replaced:
+            conn.execute("DELETE FROM fact_retail_sales WHERE source_file = ?", (source_path,))
 
     for header_row, excel_row, record in _load_sales_rows(path):
         rows_read += 1
@@ -1170,9 +1238,41 @@ def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[s
         store_code = _text(record.get("商店代码"))
         document_no = _text(record.get("单据编号"))
         document_type = _text(record.get("单据类型"))
-        qty = _float(record.get("数量")) or 0.0
-        standard_amount = _float(record.get("选定金额")) or 0.0
-        amount = _float(record.get("金额")) or 0.0
+        raw_qty_text = _text(record.get("数量"))
+        raw_standard_amount_text = _text(record.get("选定金额"))
+        raw_amount_text = _text(record.get("金额"))
+        raw_qty = _float(record.get("数量"))
+        raw_standard_amount = _float(record.get("选定金额"))
+        raw_amount = _float(record.get("金额"))
+
+        row_reasons: list[str] = []
+        if not _is_iso_date(sale_date):
+            row_reasons.append("invalid_sale_date")
+        if not product_code:
+            row_reasons.append("missing_product_code")
+        if not store_code:
+            row_reasons.append("missing_store_code")
+        if raw_qty is None:
+            row_reasons.append("invalid_qty")
+        if raw_standard_amount is None and raw_standard_amount_text:
+            row_reasons.append("invalid_standard_amount")
+        if raw_amount is None and raw_amount_text:
+            row_reasons.append("invalid_amount")
+        if row_reasons:
+            rejected_rows += 1
+            for reason in row_reasons:
+                rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
+            logger.warning(
+                "Rejected sales row %s from %s: %s",
+                excel_row,
+                source_path,
+                ", ".join(row_reasons),
+            )
+            continue
+
+        qty = raw_qty or 0.0
+        standard_amount = raw_standard_amount or 0.0
+        amount = raw_amount or 0.0
         standard_price = standard_amount / qty if qty else 0.0
         unit_price = amount / qty if qty else 0.0
         discount_rate = (amount / standard_amount) if standard_amount else 0.0
@@ -1184,10 +1284,11 @@ def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[s
             unknown_store_rows += 1
             unknown_store_codes.add(store_code)
 
-        if not sale_date or not product_code or not store_code:
-            continue
-
         date_key = sale_date.replace("-", "")
+        if not sales_date_min or sale_date < sales_date_min:
+            sales_date_min = sale_date
+        if not sales_date_max or sale_date > sales_date_max:
+            sales_date_max = sale_date
         row_hash = _safe_hash([
             sale_date,
             product_code,
@@ -1229,29 +1330,41 @@ def import_sales_file(conn, path: str | Path, batch_size: int = 10000) -> dict[s
 
         if len(batch_rows) >= batch_size:
             rows_imported += _flush_sales_rows(conn, batch_rows)
-            conn.commit()
+            if commit_batches:
+                conn.commit()
             batch_rows.clear()
 
     if batch_rows:
         rows_imported += _flush_sales_rows(conn, batch_rows)
-        conn.commit()
+        if commit_batches:
+            conn.commit()
+
+    if rows_imported == 0 and rejected_rows > 0:
+        rejection_summary = ", ".join(f"{key}:{value}" for key, value in sorted(rejection_reasons.items()))
+        raise ValueError(f"No valid sales rows were imported from {source_path}; rejected_rows={rejected_rows}; reasons={rejection_summary}")
 
     if unknown_product_codes:
         logger.warning("Unknown products: %s", ", ".join(sorted(unknown_product_codes)))
     if unknown_store_codes:
         logger.warning("Unknown stores: %s", ", ".join(sorted(unknown_store_codes)))
 
+    duplicate_rows = max(rows_read - rows_imported - rejected_rows, 0)
     return {
         "source_file": source_path,
         "rows_read": rows_read,
         "rows_imported": rows_imported,
-        "duplicate_rows": rows_read - rows_imported,
+        "duplicate_rows": duplicate_rows,
         "unknown_product_rows": unknown_product_rows,
         "unknown_product_codes": ",".join(sorted(unknown_product_codes)),
         "unknown_store_rows": unknown_store_rows,
         "unknown_store_codes": ",".join(sorted(unknown_store_codes)),
         "unknown_products": len(unknown_product_codes),
         "unknown_stores": len(unknown_store_codes),
+        "rows_rejected": rejected_rows,
+        "rejection_reasons": rejection_reasons,
+        "rows_replaced": rows_replaced,
+        "sales_date_min": sales_date_min,
+        "sales_date_max": sales_date_max,
         "load_batch_id": load_batch_id,
         "import_run_time": import_run_time,
     }
