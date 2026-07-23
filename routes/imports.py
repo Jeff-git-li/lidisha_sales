@@ -1,14 +1,8 @@
-from flask import Blueprint, render_template
+from flask import Blueprint, redirect, url_for
 
 imports_bp = Blueprint("imports", __name__)
 
 
 @imports_bp.route("/imports")
 def imports_page():
-    return render_template(
-        "placeholder.html",
-        active_page="imports",
-        page_title="数据中心",
-        heading="数据中心",
-        message="敬请期待",
-    )
+    return redirect(url_for("data_center.data_center_page"))

@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% macro status_badge(status, css_class) -%}
+  <span class="badge text-bg-{{ css_class }}">{{ status }}</span>
+{%- endmacro %}
+
+<section class="page-card data-center-hero">
+  <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3">
+    <div>
+      <div class="text-muted small mb-2">运营可视层</div>
+      <h1 class="mb-2">数据中心</h1>
+      <p class="mb-0 text-muted">查看销售、库存、主数据、快照、导入记录和调度状态，判断平台底层数据是否当前、健康、并已成功刷新。</p>
+    </div>
+    <div class="text-xl-end">
+        <div class="text-muted small">生成于</div>
+        <div class="fw-semibold fs-5">{{ summary.generated_at }}</div>
+        <div class="text-muted small mt-1">查询与语义层按区块分段统计，见下方“处理耗时”。</div>
+    </div>
+  </div>
+</section>
+
+<section class="row g-3 mt-4">
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card h-100 border-start border-4 border-{{ summary.overall.css_class }}">
+      <div class="text-muted small mb-2">总体状态</div>
+      <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+        <div class="fs-3 fw-bold">{{ summary.overall.status }}</div>
+        {{ status_badge(summary.overall.label, summary.overall.css_class) }}
+      </div>
+      <div class="text-muted small">{{ summary.overall.explanation }}</div>
+      {% if summary.overall.relevant_value %}
+        <div class="small mt-2">相关值：{{ summary.overall.relevant_value }}</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card h-100">
+      <div class="text-muted small mb-2">最新销售</div>
+      <div class="fw-bold fs-4">{{ summary.sales.latest_sales_date }}</div>
+      <div class="text-muted small mt-2">{{ summary.sales.total_rows }} 条销售记录 · {{ summary.sales.unique_products }} 款商品 · {{ summary.sales.unique_stores }} 家门店</div>
+      <div class="small mt-2">时效：{{ summary.sales.freshness_label }}（{{ summary.sales.freshness_detail }}）</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card h-100">
+      <div class="text-muted small mb-2">最新库存</div>
+      <div class="fw-bold fs-4">{{ summary.inventory.latest_inventory_date }}</div>
+      <div class="text-muted small mt-2">{{ summary.inventory.total_quantity }} · {{ summary.inventory.unique_products }} 款 · {{ summary.inventory.unique_warehouses }} 个仓库</div>
+      <div class="small mt-2">时效：{{ summary.inventory.freshness_label }}（{{ summary.inventory.freshness_detail }}）</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card h-100">
+      <div class="text-muted small mb-2">最近刷新</div>
+      <div class="fw-bold fs-4">{{ summary.last_refresh_time }}</div>
+      <div class="text-muted small mt-2">{{ summary.scheduler.schedule_label }} · 调度器：{{ summary.scheduler.label }}</div>
+      <div class="small mt-2">导入锁：{{ summary.lock_status }}{% if summary.lock_age and summary.lock_age != '--' %}（{{ summary.lock_age }}）{% endif %}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card h-100">
+      <div class="text-muted small mb-2">待处理文件</div>
+      <div class="fw-bold fs-4">{{ summary.queue_pending_file_count }}</div>
+      <div class="text-muted small mt-2">文件夹内：{{ summary.queue_folder_file_count }} · 已处理/会跳过：{{ summary.queue_skipped_or_processed_file_count }}</div>
+      <div class="small mt-2">{{ summary.queue_directory }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card h-100">
+      <div class="text-muted small mb-2">快照状态</div>
+      <div class="fw-bold fs-4">{{ summary.snapshot.latest_snapshot_date }}</div>
+      <div class="text-muted small mt-2">覆盖：{{ summary.snapshot.snapshot_date_coverage }} · {{ summary.snapshot.snapshot_row_count }} 条</div>
+      <div class="small mt-2">{{ summary.snapshot.last_snapshot_result }}</div>
+    </div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">每日队列文件</h2>
+      <div class="text-muted small">仅统计 exports/sales/daily 中需要处理的文件，不把已成功导入或重复跳过的文件算作待处理。</div>
+    </div>
+    <div class="text-muted small">文件夹内 {{ summary.queue_folder_file_count }} · 待处理 {{ summary.queue_pending_file_count }} · 已处理/会跳过 {{ summary.queue_skipped_or_processed_file_count }}</div>
+  </div>
+  {% if summary.queue_files %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>文件名</th>
+            <th>SHA-256</th>
+            <th>Registry Status</th>
+            <th>Imported At</th>
+            <th>Pending</th>
+            <th>Next Run</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in summary.queue_files %}
+            <tr>
+              <td>{{ file.filename }}</td>
+              <td style="font-family: monospace; font-size: 12px;">{{ file.sha256 }}</td>
+              <td><span class="badge text-bg-{{ file.registry_status_class }}">{{ file.registry_status }}</span></td>
+              <td>{{ file.imported_at }}</td>
+              <td>{{ file.pending }}</td>
+              <td><span class="badge text-bg-{{ file.next_action_class }}">{{ file.next_action_label }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-secondary mb-0">当前队列中没有可见的 Excel 文件。</div>
+  {% endif %}
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">运营告警</h2>
+      <div class="text-muted small">来自当前数据库和队列状态的真实告警。</div>
+    </div>
+  </div>
+  {% if summary.alerts %}
+    <div class="row g-3">
+      {% for alert in summary.alerts %}
+        <div class="col-12 col-lg-6 col-xxl-4">
+          <div class="page-card h-100 border-start border-4 border-{{ alert.severity_class }}">
+            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+              <div class="fw-semibold">{{ alert.title }}</div>
+              <span class="badge text-bg-{{ alert.severity_class }}">{{ alert.severity }}</span>
+            </div>
+            <div class="small text-muted">{{ alert.explanation }}</div>
+            <div class="small mt-2">相关值：{{ alert.relevant_value }}</div>
+            <div class="small mt-2">建议：{{ alert.recommended_action }}</div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-success mb-0">当前没有需要处理的运营告警。</div>
+  {% endif %}
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">销售数据</h2>
+      <div class="text-muted small">基于 fact_retail_sales、daily_sales_import_registry 和 import_log。</div>
+    </div>
+    <div class="text-muted small">数据时效：{{ summary.sales.freshness_label }}</div>
+  </div>
+  <div class="row g-3">
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">最新销售日期</div><div class="fw-bold fs-4">{{ summary.sales.latest_sales_date }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">最早销售日期</div><div class="fw-bold fs-4">{{ summary.sales.earliest_sales_date }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">总销售行数</div><div class="fw-bold fs-4">{{ summary.sales.total_rows }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">唯一商品 / 门店</div><div class="fw-bold fs-4">{{ summary.sales.unique_products }} / {{ summary.sales.unique_stores }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">最近成功导入</div><div class="fw-bold fs-5">{{ summary.sales.last_successful_daily_sales_import }}</div><div class="small text-muted mt-2">{{ summary.sales.last_successful_filename }} · {{ summary.sales.last_imported_row_count }} 行</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">最近失败导入</div><div class="fw-bold fs-5">{{ summary.sales.last_failed_daily_sales_import }}</div><div class="small text-muted mt-2">失败文件：{{ summary.sales.last_failed_filename }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">待处理文件</div><div class="fw-bold fs-4">{{ summary.sales.daily_queue_file_count }}</div><div class="small text-muted mt-2">重复跳过：{{ summary.sales.duplicate_skipped_file_count }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">失败文件</div><div class="fw-bold fs-4">{{ summary.sales.failed_daily_file_count }}</div><div class="small text-muted mt-2">当前目录：{{ summary.queue_directory }}</div></div></div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">库存数据</h2>
+      <div class="text-muted small">复用现有终端 / 全渠道库存口径。</div>
+    </div>
+    <div class="text-muted small">数据时效：{{ summary.inventory.freshness_label }}</div>
+  </div>
+  <div class="row g-3">
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">最新库存快照日期</div><div class="fw-bold fs-4">{{ summary.inventory.latest_inventory_date }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">库存总行数</div><div class="fw-bold fs-4">{{ summary.inventory.total_rows }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">库存总数量</div><div class="fw-bold fs-4">{{ summary.inventory.total_quantity }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">唯一商品 / 仓库</div><div class="fw-bold fs-4">{{ summary.inventory.unique_products }} / {{ summary.inventory.unique_warehouses }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">终端库存数量</div><div class="fw-bold fs-4">{{ summary.inventory.terminal_inventory_quantity }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">全渠道库存数量</div><div class="fw-bold fs-4">{{ summary.inventory.all_inventory_quantity }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">最近库存导入时间</div><div class="fw-bold fs-5">{{ summary.inventory.last_inventory_import_time }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">当前库存来源文件</div><div class="fw-bold fs-5">{{ summary.inventory.current_source_filename }}</div></div></div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">主数据质量</h2>
+      <div class="text-muted small">主数据缺口和映射缺口只做聚合统计，不扫描原始文件。</div>
+    </div>
+  </div>
+  <div class="row g-3">
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">商品数</div><div class="fw-bold fs-4">{{ summary.master.product_count }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">门店数</div><div class="fw-bold fs-4">{{ summary.master.store_count }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">仓库数</div><div class="fw-bold fs-4">{{ summary.master.warehouse_count }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">渠道数</div><div class="fw-bold fs-4">{{ summary.master.channel_count }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">缺少品类的商品</div><div class="fw-bold fs-4">{{ summary.master.products_missing_category }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">缺少渠道的门店</div><div class="fw-bold fs-4">{{ summary.master.stores_missing_channel }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">未映射到门店的库存仓库</div><div class="fw-bold fs-4">{{ summary.master.inventory_warehouse_codes_not_mapped_to_dim_store }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">未映射到商品的销售商品码</div><div class="fw-bold fs-4">{{ summary.master.sales_product_codes_not_mapped_to_dim_product }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">未映射到门店的销售门店码</div><div class="fw-bold fs-4">{{ summary.master.sales_store_codes_not_mapped_to_dim_store }}</div></div></div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">快照状态</h2>
+      <div class="text-muted small">复用 dashboard_snapshot 和现有刷新链路，不在打开页面时触发重建。</div>
+    </div>
+  </div>
+  <div class="row g-3">
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">最新快照日期</div><div class="fw-bold fs-4">{{ summary.snapshot.latest_snapshot_date }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">最后快照构建时间</div><div class="fw-bold fs-5">{{ summary.snapshot.latest_snapshot_build_time }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">快照行数</div><div class="fw-bold fs-4">{{ summary.snapshot.snapshot_row_count }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-3"><div class="page-card h-100"><div class="text-muted small">快照覆盖</div><div class="fw-bold fs-5">{{ summary.snapshot.snapshot_date_coverage }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-4"><div class="page-card h-100"><div class="text-muted small">最后快照结果</div><div class="fw-bold fs-5">{{ summary.snapshot.last_snapshot_result }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-4"><div class="page-card h-100"><div class="text-muted small">是否落后最新销售</div><div class="fw-bold fs-4">{{ summary.snapshot.behind_latest_sales_date }}</div></div></div>
+    <div class="col-12 col-md-6 col-xxl-4"><div class="page-card h-100"><div class="text-muted small">是否需要重建</div><div class="fw-bold fs-4">{{ summary.snapshot.rebuild_required }}</div></div></div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">导入记录</h2>
+      <div class="text-muted small">最近 20 条运营导入记录，按时间倒序展示。长消息可展开查看完整内容。</div>
+    </div>
+  </div>
+  {% if summary.import_history %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>时间</th>
+            <th>类型</th>
+            <th>文件名</th>
+            <th>状态</th>
+            <th class="text-end">Rows Read</th>
+            <th class="text-end">Rows Imported</th>
+            <th class="text-end">Rows Rejected</th>
+            <th class="text-end">Duplicates</th>
+            <th>Duration</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in summary.import_history %}
+            <tr>
+              <td>{{ item.time }}</td>
+              <td>{{ item.import_type }}</td>
+              <td>{{ item.filename }}</td>
+              <td><span class="badge text-bg-{{ item.status_class }}">{{ item.status }}</span></td>
+              <td class="text-end">{{ item.rows_read }}</td>
+              <td class="text-end">{{ item.rows_imported }}</td>
+              <td class="text-end">{{ item.rows_rejected }}</td>
+              <td class="text-end">{{ item.duplicates }}</td>
+              <td>{{ item.duration }}</td>
+              <td style="max-width: 420px;">
+                {% if item.message_full and item.message_full != '暂无消息' %}
+                  <details>
+                    <summary class="small text-muted">{{ item.message_short }}</summary>
+                    <div class="small mt-2" style="white-space: pre-wrap;">{{ item.message_full }}</div>
+                  </details>
+                {% else %}
+                  <span class="text-muted small">{{ item.message_short }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-secondary mb-0">暂无导入记录。</div>
+  {% endif %}
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">处理耗时</h2>
+      <div class="text-muted small">只展示预渲染分段耗时，不在模板中回填总响应时间。</div>
+    </div>
+  </div>
+  <div class="row g-3">
+    {% for name, duration in summary.section_timings.items() %}
+      <div class="col-12 col-md-6 col-xxl-3">
+        <div class="page-card h-100">
+          <div class="text-muted small">{{ name }}</div>
+          <div class="fw-bold fs-4">{{ duration }}</div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

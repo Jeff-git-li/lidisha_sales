@@ -186,6 +186,10 @@
 
 .quarter-hero{background:linear-gradient(135deg,#ffffff,#f7fbff 45%,#eef6f5);position:relative;overflow:hidden}
 .quarter-hero::after{content:"";position:absolute;right:-60px;top:-80px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(15,118,110,.12),transparent 70%);pointer-events:none}
+.data-center-hero{background:linear-gradient(135deg,#0f172a,#1f2937 48%,#0f766e);color:#fff;position:relative;overflow:hidden}
+.data-center-hero::after{content:"";position:absolute;right:-70px;top:-90px;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.14),transparent 70%);pointer-events:none}
+.data-center-hero .text-muted{color:rgba(255,255,255,.72)!important}
+.data-center-hero h1,.data-center-hero p,.data-center-hero .fw-semibold,.data-center-hero .fs-5{color:#fff}
 .quarter-period-box{min-width:220px;padding:14px 18px;border-radius:16px;background:#fff;border:1px solid var(--line);box-shadow:0 8px 20px rgba(15,23,42,.05)}
 .quarter-filter-form .form-select{min-width:0}
 .quarter-kpi-grid{align-items:stretch}

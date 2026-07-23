@@ -40,6 +40,7 @@ from routes.quarter import quarter_bp
 from routes.imports import imports_bp
 from routes.insights import insights_bp
 from routes.inventory import inventory_bp
+from routes.data_center import data_center_bp
 from routes.products import products_bp
 from routes.regions import regions_bp
 from routes.settings import settings_bp
@@ -54,6 +55,7 @@ app.register_blueprint(stores_bp)
 app.register_blueprint(regions_bp)
 app.register_blueprint(quarter_bp)
 app.register_blueprint(inventory_bp)
+app.register_blueprint(data_center_bp)
 app.register_blueprint(insights_bp)
 app.register_blueprint(imports_bp)
 app.register_blueprint(settings_bp)

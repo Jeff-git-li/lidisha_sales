@@ -320,20 +320,9 @@ def _product_sort_key(row: dict[str, Any], product_sort: str) -> tuple[Any, ...]
 
 
 def _product_sellthrough_rows(date_window: InventoryDateWindow, scope: str | None = None, inventory_basis: str | None = None, channel_code: str | None = None, store_code: str | None = None) -> list[dict[str, Any]]:
-    inventory_where_sql, inventory_params = _channel_store_inventory_clause(
-        scope,
-        channel_code=channel_code,
-        store_code=store_code,
-        inventory_basis=inventory_basis,
-    )
+    inventory_where_sql, inventory_params = _channel_store_inventory_clause(scope, channel_code=channel_code, store_code=store_code, inventory_basis=inventory_basis)
     quarter_sales_where_sql, quarter_sales_params = build_where_clause(
-        _sales_filter_args(
-            scope,
-            channel_code=channel_code,
-            store_code=store_code,
-            start_date=date_window.quarter_start_date,
-            end_date=date_window.effective_sales_date,
-        ),
+        _sales_filter_args(scope, channel_code=channel_code, store_code=store_code, end_date=date_window.effective_sales_date),
         core_only=False,
     )
     cumulative_sales_where_sql, cumulative_sales_params = build_where_clause(
@@ -423,6 +412,39 @@ def _product_sellthrough_rows(date_window: InventoryDateWindow, scope: str | Non
     """
     params = [date_window.inventory_snapshot_date] + inventory_params + quarter_sales_params + cumulative_sales_params
     return _query_all(sql, params)
+
+
+def _build_kpis_from_rows(date_window: InventoryDateWindow, rows: list[dict[str, Any]], scope: str | None = None, channel_code: str | None = None, store_code: str | None = None, inventory_basis: str | None = None) -> InventoryKPI:
+    base_row = get_inventory_quantity_summary(
+        date_window.inventory_snapshot_date,
+        scope=scope,
+        channel_code=channel_code,
+        store_code=store_code,
+        inventory_basis=inventory_basis,
+    )
+    inventory_qty = float(base_row.get("current_inventory_qty", 0) or 0)
+    quarter_sales_qty = sum(float(row.get("quarter_sales_qty", 0) or 0) for row in rows)
+    cumulative_sales_qty = sum(float(row.get("cumulative_sales_qty", 0) or 0) for row in rows)
+    last_30_days_sales, sell_through_rate, inventory_days, sales_available = _sales_metrics(
+        date_window.inventory_snapshot_date,
+        scope=scope,
+        channel_code=channel_code,
+        store_code=store_code,
+        inventory_qty=inventory_qty,
+    )
+    return InventoryKPI(
+        current_inventory_amount=float(base_row.get("current_inventory_amount", 0) or 0),
+        current_inventory_qty=inventory_qty,
+        inventory_sku_count=int(base_row.get("inventory_sku_count", 0) or 0),
+        warehouse_count=int(base_row.get("store_count", 0) or 0),
+        store_warehouse_count=int(base_row.get("store_count", 0) or 0),
+        last_30_days_sales=last_30_days_sales,
+        sell_through_rate=sell_through_rate,
+        inventory_days=inventory_days,
+        quarter_sell_through_rate=_sell_through_rate(quarter_sales_qty, inventory_qty),
+        cumulative_sell_through_rate=_sell_through_rate(cumulative_sales_qty, inventory_qty),
+        sales_available=sales_available,
+    )
 
 
 def _build_kpis_from_rows(date_window: InventoryDateWindow, rows: list[dict[str, Any]], scope: str | None = None, channel_code: str | None = None, store_code: str | None = None, inventory_basis: str | None = None) -> InventoryKPI:
@@ -757,6 +779,28 @@ def _inventory_health_summary_sql(inventory_date: str, scope: str | None = None,
     ORDER BY CASE health_key WHEN 'healthy' THEN 1 WHEN 'normal' THEN 2 WHEN 'slow_moving' THEN 3 ELSE 4 END
     """
     return sql, [inventory_date] + inventory_params + sales_params
+
+
+def _inventory_quantity_summary_sql(inventory_date: str, scope: str | None = None, channel_code: str | None = None, store_code: str | None = None, inventory_basis: str | None = None) -> tuple[str, list[Any]]:
+    where_fragment, params = _channel_store_inventory_clause(scope, channel_code=channel_code, store_code=store_code, inventory_basis=inventory_basis)
+    sql = f"""
+    {_inventory_base_cte()}
+    SELECT
+        COALESCE(SUM(available_inventory_qty * unit_cost), 0) AS current_inventory_amount,
+        COALESCE(SUM(available_inventory_qty), 0) AS current_inventory_qty,
+        COUNT(DISTINCT CASE WHEN available_inventory_qty > 0 THEN product_code END) AS inventory_sku_count,
+        COUNT(DISTINCT CASE WHEN COALESCE(NULLIF(TRIM(store_code), ''), '') <> '' THEN store_code END) AS store_count,
+        COUNT(DISTINCT CASE WHEN COALESCE(is_store_warehouse, 0) = 1 THEN warehouse_code END) AS terminal_warehouse_count,
+        COUNT(DISTINCT warehouse_code) AS all_warehouse_count
+    FROM inventory_base
+    {where_fragment}
+    """
+    return sql, [inventory_date] + params
+
+
+def get_inventory_quantity_summary(inventory_date: str, scope: str | None = None, channel_code: str | None = None, store_code: str | None = None, inventory_basis: str | None = None) -> dict[str, Any]:
+    sql, params = _inventory_quantity_summary_sql(inventory_date, scope=scope, channel_code=channel_code, store_code=store_code, inventory_basis=inventory_basis)
+    return _query_one(sql, params)
 
 
 def get_inventory_health_summary(inventory_date: str, scope: str | None = None, channel_code: str | None = None, store_code: str | None = None, inventory_basis: str | None = None) -> list[InventoryHealthSummary]:
