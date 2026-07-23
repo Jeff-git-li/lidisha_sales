@@ -148,25 +148,77 @@ This was a path-only refactor.
 
 ## Sprint 8.1 — Data Center
 
-Status: In Progress
+Status: Completed
 
-Goal:
+Delivered:
 
-Add a read-only operational page that exposes:
+- Data Center
+- Overall system health
+- Sales freshness
+- Inventory freshness
+- Snapshot status
+- Registry-aware daily queue
+- Import lock state
+- Import history
+- Master data quality
+- Operational alerts
 
-- overall data health
-- sales freshness
-- inventory freshness
-- master-data quality
-- snapshot status
-- daily queue state
-- import lock state
-- recent import history
-- operational alerts
+Key implementation:
 
-Hard rule:
+- Registry-aware pending queue
+- Shared inventory quantity helper
+- Read-only architecture
+- Compatibility redirect from /imports
 
-Opening Data Center must not trigger import, snapshot rebuild, or any database/filesystem mutation.
+Validation:
+
+- GET /data-center is read-only
+- Queue semantics verified
+- Existing routes verified
+- Shared inventory contract reused
+- No importer or snapshot side effects
+
+Known remaining risk:
+
+- Initial render performance (~2–3 s) can be optimized in a future sprint if necessary.
+
+Commit:
+Status: Completed
+
+Delivered:
+
+- Data Center
+- Overall system health
+- Sales freshness
+- Inventory freshness
+- Snapshot status
+- Registry-aware daily queue
+- Import lock state
+- Import history
+- Master data quality
+- Operational alerts
+
+Key implementation:
+
+- Registry-aware pending queue
+- Shared inventory quantity helper
+- Read-only architecture
+- Compatibility redirect from /imports
+
+Validation:
+
+- GET /data-center is read-only
+- Queue semantics verified
+- Existing routes verified
+- Shared inventory contract reused
+- No importer or snapshot side effects
+
+Known remaining risk:
+
+- Initial render performance (~2–3 s) can be optimized in a future sprint if necessary.
+
+Commit:
+ea76feb
 
 ---
 
