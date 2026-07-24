@@ -803,6 +803,31 @@ def get_inventory_quantity_summary(inventory_date: str, scope: str | None = None
     return _query_one(sql, params)
 
 
+def _inventory_quantity_summary_bundle_sql(inventory_date: str, scope: str | None = None, channel_code: str | None = None, store_code: str | None = None) -> tuple[str, list[Any]]:
+    where_fragment, params = _channel_store_inventory_clause(scope, channel_code=channel_code, store_code=store_code, inventory_basis="all")
+    sql = f"""
+    {_inventory_base_cte()}
+    SELECT
+        COUNT(*) AS total_rows,
+        COUNT(DISTINCT product_code) AS unique_products,
+        COUNT(DISTINCT warehouse_code) AS unique_warehouses,
+        COALESCE(SUM(available_inventory_qty * unit_cost), 0) AS all_inventory_amount,
+        COALESCE(SUM(available_inventory_qty), 0) AS all_inventory_qty,
+        COUNT(DISTINCT CASE WHEN COALESCE(is_store_warehouse, 0) = 1 THEN warehouse_code END) AS terminal_warehouse_count,
+        COUNT(DISTINCT warehouse_code) AS all_warehouse_count,
+        COALESCE(SUM(CASE WHEN COALESCE(is_store_warehouse, 0) = 1 THEN available_inventory_qty * unit_cost ELSE 0 END), 0) AS terminal_inventory_amount,
+        COALESCE(SUM(CASE WHEN COALESCE(is_store_warehouse, 0) = 1 THEN available_inventory_qty ELSE 0 END), 0) AS terminal_inventory_qty
+    FROM inventory_base
+    {where_fragment}
+    """
+    return sql, [inventory_date] + params
+
+
+def get_inventory_quantity_summary_bundle(inventory_date: str, scope: str | None = None, channel_code: str | None = None, store_code: str | None = None) -> dict[str, Any]:
+    sql, params = _inventory_quantity_summary_bundle_sql(inventory_date, scope=scope, channel_code=channel_code, store_code=store_code)
+    return _query_one(sql, params)
+
+
 def get_inventory_health_summary(inventory_date: str, scope: str | None = None, channel_code: str | None = None, store_code: str | None = None, inventory_basis: str | None = None) -> list[InventoryHealthSummary]:
     sql, params = _inventory_health_summary_sql(inventory_date, scope=scope, channel_code=channel_code, store_code=store_code, inventory_basis=inventory_basis)
     rows = _query_all(sql, params)

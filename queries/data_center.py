@@ -11,7 +11,7 @@ from typing import Any
 from config import AUTO_REFRESH_HOUR, AUTO_REFRESH_MINUTE
 from database import get_db_connection
 from importers.sales_importer import DAILY_EXPORT_DIR, DAILY_IMPORT_LOCK_PATH, list_daily_sales_files
-from queries.inventory import get_inventory_quantity_summary
+from queries.inventory import get_inventory_quantity_summary_bundle
 
 
 def _is_missing_schema_error(exc: sqlite3.OperationalError) -> bool:
@@ -284,30 +284,18 @@ def _load_inventory_section(conn: sqlite3.Connection) -> dict[str, Any]:
         default={"inventory_date": "", "imported_at": "", "source_file": ""},
     )
     latest_inventory_date = str(latest_row.get("inventory_date", "") or "")
-    terminal_summary = get_inventory_quantity_summary(latest_inventory_date, inventory_basis="terminal") if latest_inventory_date else {}
-    all_summary = get_inventory_quantity_summary(latest_inventory_date, inventory_basis="all") if latest_inventory_date else {}
-    metrics = _query_one(
-        conn,
-        """
-        SELECT
-            COUNT(*) AS total_rows,
-            COUNT(DISTINCT product_code) AS unique_products,
-            COUNT(DISTINCT i.warehouse_code) AS unique_warehouses
-        FROM fact_inventory_snapshot i
-        """,
-        default={"total_rows": 0, "unique_products": 0, "unique_warehouses": 0},
-    )
+    inventory_bundle = get_inventory_quantity_summary_bundle(latest_inventory_date) if latest_inventory_date else {}
     return {
         "available": True,
         "latest_inventory_date": latest_inventory_date,
-        "total_rows": _safe_int(metrics.get("total_rows")),
-        "total_inventory_quantity": _safe_float(all_summary.get("current_inventory_qty")),
-        "unique_products": _safe_int(metrics.get("unique_products")),
-        "unique_warehouses": _safe_int(metrics.get("unique_warehouses")),
-        "terminal_inventory_quantity": _safe_float(terminal_summary.get("current_inventory_qty")),
-        "all_inventory_quantity": _safe_float(all_summary.get("current_inventory_qty")),
-        "terminal_warehouse_count": _safe_int(terminal_summary.get("terminal_warehouse_count")),
-        "all_warehouse_count": _safe_int(all_summary.get("all_warehouse_count")),
+        "total_rows": _safe_int(inventory_bundle.get("total_rows")),
+        "total_inventory_quantity": _safe_float(inventory_bundle.get("all_inventory_qty")),
+        "unique_products": _safe_int(inventory_bundle.get("unique_products")),
+        "unique_warehouses": _safe_int(inventory_bundle.get("unique_warehouses")),
+        "terminal_inventory_quantity": _safe_float(inventory_bundle.get("terminal_inventory_qty")),
+        "all_inventory_quantity": _safe_float(inventory_bundle.get("all_inventory_qty")),
+        "terminal_warehouse_count": _safe_int(inventory_bundle.get("terminal_warehouse_count")),
+        "all_warehouse_count": _safe_int(inventory_bundle.get("all_warehouse_count")),
         "last_inventory_import_time": str(latest_row.get("imported_at", "") or ""),
         "current_source_filename": _basename(str(latest_row.get("source_file", "") or "")),
     }

@@ -595,6 +595,17 @@ def init_db(conn: sqlite3.Connection):
     )
 
 
+def ensure_performance_indexes(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_fact_inventory_snapshot_date_imported_at
+            ON fact_inventory_snapshot(inventory_date DESC, imported_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_fact_retail_sales_source_file
+            ON fact_retail_sales(source_file);
+        """
+    )
+
+
 def list_excel_files(input_dir: str, pattern: str = "*.xlsx") -> list[str]:
     folder = Path(input_dir)
     files = [p for p in folder.glob(pattern) if not p.name.startswith("~$")]
@@ -1349,6 +1360,8 @@ def parse_args():
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         APP_CONFIG.update({"excel_path": None, "inventory_path": None, "input_dir": DEFAULT_INPUT_DIR, "image_root": DEFAULT_IMAGE_ROOT, "top_n": DEFAULT_TOP_N})
+        with get_db_connection() as conn:
+            ensure_performance_indexes(conn)
         if _should_run_reloader_worker(reloader_enabled=True):
             try:
                 initial_result = reload_dashboard_data(trigger="startup")
@@ -1368,6 +1381,8 @@ if __name__ == "__main__":
         args = parse_args()
         excel_path = args.input or latest_excel(args.input_dir)
         APP_CONFIG.update({"excel_path": excel_path if args.input else None, "inventory_path": None, "input_dir": args.input_dir, "image_root": args.image_root, "top_n": args.top_n})
+        with get_db_connection() as conn:
+            ensure_performance_indexes(conn)
         try:
             initial_result = reload_dashboard_data(trigger="startup")
         except sqlite3.DatabaseError as exc:
