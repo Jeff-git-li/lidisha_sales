@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -1126,8 +1127,71 @@ def _load_sales_rows_xls(path: str | Path):
         yield header_row, row_index + 1, record
 
 
+def _read_csv_sales_rows(path: str | Path) -> list[list[str]]:
+    encodings = ("utf-8-sig", "gb18030", "gbk")
+    last_error: UnicodeDecodeError | None = None
+    for encoding in encodings:
+        try:
+            with Path(path).open("r", encoding=encoding, newline="") as handle:
+                return [[_text(cell) for cell in row] for row in csv.reader(handle)]
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    raise ValueError(f"Unable to decode sales CSV file {path}") from last_error
+
+
+def _merged_header_cells(first_row: list[str], second_row: list[str] | None = None) -> list[str]:
+    if second_row is None:
+        return first_row
+    width = max(len(first_row), len(second_row))
+    merged: list[str] = []
+    for index in range(width):
+        first_value = first_row[index] if index < len(first_row) else ""
+        second_value = second_row[index] if index < len(second_row) else ""
+        merged.append(first_value or second_value)
+    return merged
+
+
+def _load_sales_rows_csv(path: str | Path):
+    rows = _read_csv_sales_rows(path)
+    normalized_required = {"日期", "商品代码", "数量"}
+    header_row = 0
+    header_cells: list[str] = []
+    data_start_index = 0
+    for index, values in enumerate(rows):
+        if not any(values):
+            continue
+        candidates = [(values, index + 1, index + 1)]
+        if index + 1 < len(rows):
+            candidates.append((_merged_header_cells(values, rows[index + 1]), index + 1, index + 2))
+        for candidate, candidate_header_row, candidate_data_start in candidates:
+            normalized = {value for value in candidate if value}
+            if normalized_required.issubset(normalized):
+                header_row = candidate_header_row
+                header_cells = candidate
+                data_start_index = candidate_data_start
+                break
+        if header_row:
+            break
+    if not header_row:
+        raise ValueError("Unable to locate sales header row")
+    header_map = [(index, value) for index, value in enumerate(header_cells) if value]
+    headers = [value for _, value in header_map]
+    missing = [column for column in SALES_REQUIRED_COLUMNS if column not in headers]
+    if missing:
+        raise ValueError(f"Sales CSV is missing required columns: {', '.join(missing)}")
+    for row_index, values in enumerate(rows[data_start_index:], start=data_start_index + 1):
+        if not any(values):
+            continue
+        record = {header: values[column_index] if column_index < len(values) else "" for column_index, header in header_map}
+        yield header_row, row_index, record
+
+
 def _load_sales_rows(path: str | Path):
-    if Path(path).suffix.lower() == ".xls":
+    suffix = Path(path).suffix.lower()
+    if suffix == ".csv":
+        yield from _load_sales_rows_csv(path)
+        return
+    if suffix == ".xls":
         yield from _load_sales_rows_xls(path)
         return
     workbook = load_workbook(path, read_only=True, data_only=True)

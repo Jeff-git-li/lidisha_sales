@@ -22,10 +22,10 @@ exports/sales/daily/
 ```text
 BSERP daily sales export
 → place file in exports/sales/daily/
-→ scan supported Excel files
+→ scan supported Excel/CSV files
 → calculate SHA-256
 → consult daily_sales_import_registry
-→ validate workbook structure
+→ validate workbook/CSV structure
 → import through existing sales importer
 → commit file atomically
 → record result
@@ -39,12 +39,13 @@ Supported:
 
 - `.xlsx`
 - `.xls`
+- `.csv`
 
 Ignored:
 
 - files beginning with `~$`
 - hidden files
-- non-Excel files
+- files outside the supported Excel/CSV extensions
 - directories
 - lock files
 

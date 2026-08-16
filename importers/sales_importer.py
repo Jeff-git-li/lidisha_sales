@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 DAILY_EXPORT_DIR = Path(__file__).resolve().parent.parent / "exports" / "sales" / "daily"
 DAILY_IMPORT_LOCK_PATH = DAILY_EXPORT_DIR / ".daily_import.lock"
 DAILY_IMPORT_REGISTRY_TABLE = "daily_sales_import_registry"
-SUPPORTED_DAILY_EXTENSIONS = {".xlsx", ".xls"}
+SUPPORTED_DAILY_EXTENSIONS = {".xlsx", ".xls", ".csv"}
 
 
 def ensure_daily_import_registry_table(conn) -> None:
