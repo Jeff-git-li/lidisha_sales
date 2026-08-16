@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% macro money_display(value) -%}
+  {%- set amount = value or 0 -%}
+  {%- if amount >= 100000000 -%}
+    ¥{{ '{:.2f}'.format(amount / 100000000) }}亿
+  {%- elif amount >= 10000 -%}
+    ¥{{ '{:.2f}'.format(amount / 10000) }}万
+  {%- else -%}
+    ¥{{ '{:,.2f}'.format(amount) }}
+  {%- endif -%}
+{%- endmacro %}
+{% macro ratio_display(value) -%}
+  {%- if value is none -%}
+    --
+  {%- else -%}
+    {{ '{:.1%}'.format(value) }}
+  {%- endif -%}
+{%- endmacro %}
+{% macro number_display(value, suffix='') -%}
+  {%- if value is none -%}
+    --
+  {%- else -%}
+    {{ '{:,.0f}'.format(value) }}{{ suffix }}
+  {%- endif -%}
+{%- endmacro %}
+
+<section class="page-card quarter-hero">
+  <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3">
+    <div>
+      <div class="text-muted small mb-2">门店分析</div>
+      <h1 class="mb-2">门店分析</h1>
+      <p class="mb-0 text-muted">面向管理层查看门店销售规模、健康分层、Top / Bottom 门店与单店入口。</p>
+    </div>
+    <div class="quarter-period-box text-xl-end">
+      <div class="text-muted small">最新销售日期</div>
+      <div class="fw-semibold fs-5">{{ period.latest_sale_date or '--' }}</div>
+      <div class="text-muted small">{{ period.label }}</div>
+      <div class="text-muted small mt-2">{{ period.comparison_label }}</div>
+    </div>
+  </div>
+</section>
+
+<section class="page-card mt-4 border border-info-subtle bg-info-subtle">
+  <div class="d-flex align-items-start gap-3">
+    <div class="text-info fs-4 lh-1 pt-1">i</div>
+    <div>
+      <div class="fw-semibold text-info mb-2">门店分析说明</div>
+      <div class="text-muted small">本页面直接基于 fact_retail_sales 汇总，不修改任何导入、调度、快照或数据中心逻辑。若门店编码未映射，将以原始编码展示。</div>
+    </div>
+  </div>
+</section>
+
+<section class="row g-3 mt-4 quarter-kpi-grid">
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">当前销售额</div>
+      <div class="quarter-kpi-value">{{ money_display(kpis.current_sales_amount) }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">当前销售件数</div>
+      <div class="quarter-kpi-value">{{ number_display(kpis.current_sales_qty, ' 件') }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">活跃门店</div>
+      <div class="quarter-kpi-value">{{ number_display(kpis.active_stores, ' 家') }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">平均单店销售额</div>
+      <div class="quarter-kpi-value">{{ money_display(kpis.average_sales_per_store) }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">日均销售额</div>
+      <div class="quarter-kpi-value">{{ money_display(kpis.average_daily_sales_amount) }}</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xxl-4">
+    <div class="page-card quarter-kpi-card h-100">
+      <div class="text-muted small">整体增长率</div>
+      <div class="quarter-kpi-value">{{ ratio_display(kpis.growth_rate) }}</div>
+      <div class="text-muted small mt-2">按当前 30 天对比前 30 天计算</div>
+    </div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">Store health summary</h2>
+      <div class="text-muted small">按当前周期销售表现分层，帮助快速识别增长、稳定、下滑和沉默门店。</div>
+    </div>
+  </div>
+  <div class="row g-3">
+    {% for row in health_summary %}
+      <div class="col-12 col-md-6 col-xl-4">
+        <div class="page-card h-100 border-start border-4 border-{{ row.color_class }}">
+          <div class="d-flex flex-column gap-2">
+            <div class="fw-semibold">{{ row.label }}</div>
+            <div class="small text-muted">门店数：{{ number_display(row.store_count, ' 家') }}</div>
+            <div class="small text-muted">销售额：{{ money_display(row.sales_amount) }}</div>
+            <div class="small text-muted">销售件数：{{ number_display(row.sales_qty, ' 件') }}</div>
+            <div class="small text-muted">占比：{{ ratio_display(row.contribution_rate) }}</div>
+            <div class="small text-muted">平均增长：{{ ratio_display(row.average_growth_rate) }}</div>
+            <div class="small text-muted">{{ row.description }}</div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">Top 20 stores</h2>
+      <div class="text-muted small">按当前周期销售额排序。</div>
+    </div>
+    <div class="text-muted small">点击“查看详情”进入单店入口。</div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>排名</th>
+          <th>门店名称</th>
+          <th>门店编码</th>
+          <th>区域</th>
+          <th>类型</th>
+          <th class="text-end">销售额</th>
+          <th class="text-end">销售件数</th>
+          <th class="text-end">增长率</th>
+          <th class="text-end">活跃天数</th>
+          <th>详情</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in top_stores %}
+          <tr {% if selected_store_code == row.store_code %}class="table-info"{% endif %}>
+            <td class="fw-semibold">{{ row.rank }}</td>
+            <td>{{ row.store_name }}</td>
+            <td>{{ row.store_code }}</td>
+            <td>{{ row.region_name }}</td>
+            <td>{{ row.store_type_name }}</td>
+            <td class="text-end">{{ money_display(row.current_sales_amount) }}</td>
+            <td class="text-end">{{ number_display(row.current_sales_qty, ' 件') }}</td>
+            <td class="text-end">{{ ratio_display(row.growth_rate) }}</td>
+            <td class="text-end">{{ number_display(row.current_active_days, ' 天') }}</td>
+            <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('store.store_page', store_code=row.store_code) }}">查看详情</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-2 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">Bottom 20 stores</h2>
+      <div class="text-muted small">按当前周期销售额从低到高排序。</div>
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>排名</th>
+          <th>门店名称</th>
+          <th>门店编码</th>
+          <th>区域</th>
+          <th>类型</th>
+          <th class="text-end">销售额</th>
+          <th class="text-end">销售件数</th>
+          <th class="text-end">增长率</th>
+          <th class="text-end">活跃天数</th>
+          <th>详情</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in bottom_stores %}
+          <tr {% if selected_store_code == row.store_code %}class="table-info"{% endif %}>
+            <td class="fw-semibold">{{ row.rank }}</td>
+            <td>{{ row.store_name }}</td>
+            <td>{{ row.store_code }}</td>
+            <td>{{ row.region_name }}</td>
+            <td>{{ row.store_type_name }}</td>
+            <td class="text-end">{{ money_display(row.current_sales_amount) }}</td>
+            <td class="text-end">{{ number_display(row.current_sales_qty, ' 件') }}</td>
+            <td class="text-end">{{ ratio_display(row.growth_rate) }}</td>
+            <td class="text-end">{{ number_display(row.current_active_days, ' 天') }}</td>
+            <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('store.store_page', store_code=row.store_code) }}">查看详情</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="page-card mt-4 border border-light-subtle bg-light-subtle">
+  <div class="d-flex flex-column flex-lg-row justify-content-between gap-2">
+    <div>
+      <div class="fw-semibold mb-2">Trend placeholder</div>
+      <div class="text-muted small">{{ trend_placeholder.description if trend_placeholder else '后续可接入门店日度销售趋势、区域联动或门店热力图。' }}</div>
+      <div class="text-muted small mt-2">{{ trend_placeholder.note if trend_placeholder else '当前版本保留为空位，避免在只读分析页引入额外复杂度。' }}</div>
+    </div>
+    <div class="text-muted small text-lg-end">{{ trend_placeholder.title if trend_placeholder else '趋势看板预留' }}</div>
+  </div>
+</section>
+
+<section class="page-card mt-4">
+  <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-3 mb-3">
+    <div>
+      <h2 class="section-title-xl mb-1">Store detail entry point</h2>
+      <div class="text-muted small">输入门店编码即可进入单店概览入口，页面保持只读。</div>
+    </div>
+  </div>
+  <form method="get" action="{{ url_for('store.store_page') }}" class="row g-3 align-items-end">
+    <div class="col-12 col-lg-6">
+      <label class="form-label fw-semibold">门店编码</label>
+      <input class="form-control" type="text" name="store_code" value="{{ selected_store_code }}" list="store-suggestions" placeholder="例如：A001" />
+      <datalist id="store-suggestions">
+        {% for row in top_stores %}
+          <option value="{{ row.store_code }}">{{ row.store_name }}</option>
+        {% endfor %}
+      </datalist>
+    </div>
+    <div class="col-12 col-lg-6 d-flex gap-2">
+      <button class="btn btn-primary" type="submit">查看门店详情</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('store.store_page') }}">清除选择</a>
+    </div>
+  </form>
+  {% if filter_warning %}
+    <div class="alert alert-warning mt-3 mb-0 py-2 px-3 small">{{ filter_warning }}</div>
+  {% endif %}
+  {% if selected_store_detail %}
+    <div class="row g-3 mt-3">
+      <div class="col-12 col-xl-4">
+        <div class="page-card h-100">
+          <div class="text-muted small mb-2">当前选择</div>
+          <div class="fw-semibold fs-5">{{ selected_store_name }}</div>
+          <div class="text-muted small">{{ selected_store_code }}</div>
+          <div class="text-muted small mt-2">{{ selected_store_detail.region_name }} / {{ selected_store_detail.store_type_name }}</div>
+        </div>
+      </div>
+      <div class="col-12 col-xl-8">
+        <div class="page-card h-100">
+          <div class="row g-3">
+            <div class="col-12 col-md-4"><div class="text-muted small">销售额</div><div class="fw-semibold fs-5">{{ money_display(selected_store_detail.current_sales_amount) }}</div></div>
+            <div class="col-12 col-md-4"><div class="text-muted small">销售件数</div><div class="fw-semibold fs-5">{{ number_display(selected_store_detail.current_sales_qty, ' 件') }}</div></div>
+            <div class="col-12 col-md-4"><div class="text-muted small">增长率</div><div class="fw-semibold fs-5">{{ ratio_display(selected_store_detail.growth_rate) }}</div></div>
+            <div class="col-12 col-md-4"><div class="text-muted small">活跃天数</div><div class="fw-semibold fs-5">{{ number_display(selected_store_detail.current_active_days, ' 天') }}</div></div>
+            <div class="col-12 col-md-4"><div class="text-muted small">平均销售行金额</div><div class="fw-semibold fs-5">{{ money_display(selected_store_detail.average_ticket_amount) }}</div></div>
+            <div class="col-12 col-md-4"><div class="text-muted small">折扣率</div><div class="fw-semibold fs-5">{{ ratio_display(selected_store_detail.current_discount_rate) }}</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+</section>
+
+<section class="page-card mt-4 border border-light-subtle bg-light-subtle">
+  <div class="text-muted small">{{ data_quality_note }}</div>
+</section>
+{% endblock %}

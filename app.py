@@ -44,14 +44,14 @@ from routes.data_center import data_center_bp
 from routes.products import products_bp
 from routes.regions import regions_bp
 from routes.settings import settings_bp
-from routes.stores import stores_bp
+from routes.store import store_bp
 
 app = Flask(__name__)
 configure_logging()
 logger = get_logger(__name__)
 
 app.register_blueprint(products_bp)
-app.register_blueprint(stores_bp)
+app.register_blueprint(store_bp)
 app.register_blueprint(regions_bp)
 app.register_blueprint(quarter_bp)
 app.register_blueprint(inventory_bp)
