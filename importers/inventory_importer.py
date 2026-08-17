@@ -34,6 +34,7 @@ class InventoryImportResult:
     net_inventory_quantity: float
     available_inventory_quantity: float
     unmatched_warehouse_count: int
+    unmatched_warehouse_codes: str
 
 
 def _find_header_row(ws) -> int:
@@ -213,7 +214,6 @@ def import_inventory_file(path: str | Path, batch_size: int = 10000) -> dict[str
         rows_imported = 0
         positive_inventory_rows = 0
         negative_inventory_rows = 0
-        unmatched_warehouse_count = 0
         net_inventory_quantity = 0.0
         available_inventory_quantity = 0.0
         unique_products: set[str] = set()
@@ -268,7 +268,7 @@ def import_inventory_file(path: str | Path, batch_size: int = 10000) -> dict[str
         if rows_read == 0:
             raise ValueError("Inventory workbook contains no data rows")
         if unmatched_warehouses:
-            raise ValueError(f"Inventory workbook contains unknown warehouse codes: {', '.join(sorted(unmatched_warehouses))}")
+            logger.warning("Inventory contains unknown warehouse codes: %s", ", ".join(sorted(unmatched_warehouses)))
 
         result = {
             "source_file": source_file,
@@ -282,6 +282,7 @@ def import_inventory_file(path: str | Path, batch_size: int = 10000) -> dict[str
             "net_inventory_quantity": net_inventory_quantity,
             "available_inventory_quantity": available_inventory_quantity,
             "unmatched_warehouse_count": len(unmatched_warehouses),
+            "unmatched_warehouse_codes": ",".join(sorted(unmatched_warehouses)),
         }
         conn.commit()
         return result
