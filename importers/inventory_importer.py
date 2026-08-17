@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -45,7 +47,14 @@ def _find_header_row(ws) -> int:
     raise ValueError("Unable to locate inventory header row")
 
 
-def _extract_inventory_date(ws) -> str:
+def _extract_inventory_date_from_filename(path: str | Path) -> str:
+    match = re.search(r"(20\d{6})", Path(path).name)
+    if not match:
+        raise ValueError("Inventory date is missing")
+    return datetime.strptime(match.group(1), "%Y%m%d").date().isoformat()
+
+
+def _extract_inventory_date(ws, path: str | Path | None = None) -> str:
     for row_index in range(1, 9):
         for cell in ws[row_index]:
             value = _text(cell.value)
@@ -55,6 +64,8 @@ def _extract_inventory_date(ws) -> str:
                 inventory_date = value.split(INVENTORY_DATE_PATTERN, 1)[1].strip()
                 if inventory_date:
                     return inventory_date
+    if path is not None:
+        return _extract_inventory_date_from_filename(path)
     raise ValueError("Inventory date is missing")
 
 
@@ -117,8 +128,60 @@ def _flush_rows(conn, rows: list[tuple[Any, ...]]) -> int:
     return conn.total_changes - before
 
 
-def import_inventory_file(path: str | Path, batch_size: int = 10000) -> dict[str, Any]:
-    source_file = str(Path(path).resolve())
+def _read_csv_rows(path: str | Path) -> list[list[str]]:
+    encodings = ("utf-8-sig", "gb18030", "gbk")
+    last_error: UnicodeDecodeError | None = None
+    for encoding in encodings:
+        try:
+            with Path(path).open("r", encoding=encoding, newline="") as handle:
+                return [[_text(cell) for cell in row] for row in csv.reader(handle)]
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    raise ValueError(f"Unable to decode inventory CSV file {path}") from last_error
+
+
+def _merged_header_cells(first_row: list[str], second_row: list[str] | None = None) -> list[str]:
+    if second_row is None:
+        return first_row
+    width = max(len(first_row), len(second_row))
+    merged: list[str] = []
+    for index in range(width):
+        first_value = first_row[index] if index < len(first_row) else ""
+        second_value = second_row[index] if index < len(second_row) else ""
+        merged.append(first_value or second_value)
+    return merged
+
+
+def _load_inventory_rows_csv(path: str | Path) -> tuple[str, list[str], list[list[str]], int]:
+    rows = _read_csv_rows(path)
+    required = set(INVENTORY_REQUIRED_COLUMNS)
+    header_row = 0
+    headers: list[str] = []
+    data_start_index = 0
+    for index, values in enumerate(rows):
+        if not any(values):
+            continue
+        candidates = [(values, index + 1, index + 1)]
+        if index + 1 < len(rows):
+            candidates.append((_merged_header_cells(values, rows[index + 1]), index + 1, index + 2))
+        for candidate, candidate_header_row, candidate_data_start in candidates:
+            normalized = {value for value in candidate if value}
+            if required.issubset(normalized):
+                header_row = candidate_header_row
+                headers = candidate
+                data_start_index = candidate_data_start
+                break
+        if header_row:
+            break
+    if not header_row:
+        raise ValueError("Unable to locate inventory header row")
+    missing = sorted(required - {value for value in headers if value})
+    if missing:
+        raise ValueError(f"Inventory CSV is missing required columns: {', '.join(missing)}")
+    return _extract_inventory_date_from_filename(path), headers, rows[data_start_index:], header_row
+
+
+def _load_inventory_rows_workbook(path: str | Path) -> tuple[str, list[str], Any, int]:
     workbook = load_workbook(path, read_only=True, data_only=True)
     ws = workbook[workbook.sheetnames[0]]
     header_row = _find_header_row(ws)
@@ -127,8 +190,15 @@ def import_inventory_file(path: str | Path, batch_size: int = 10000) -> dict[str
     if not required_set.issubset({value for value in headers if value}):
         missing = sorted(required_set - {value for value in headers if value})
         raise ValueError(f"Inventory workbook is missing required columns: {', '.join(missing)}")
+    return _extract_inventory_date(ws, path), headers, ws.iter_rows(min_row=header_row + 1, values_only=True), header_row
 
-    inventory_date = _extract_inventory_date(ws)
+
+def import_inventory_file(path: str | Path, batch_size: int = 10000) -> dict[str, Any]:
+    source_file = str(Path(path).resolve())
+    if Path(path).suffix.lower() == ".csv":
+        inventory_date, headers, source_rows, _ = _load_inventory_rows_csv(path)
+    else:
+        inventory_date, headers, source_rows, _ = _load_inventory_rows_workbook(path)
     imported_at = datetime.now().isoformat(timespec="seconds")
 
     with get_db_connection() as conn:
@@ -151,7 +221,7 @@ def import_inventory_file(path: str | Path, batch_size: int = 10000) -> dict[str
         unmatched_warehouses: set[str] = set()
         batch_rows: list[tuple[Any, ...]] = []
 
-        for values in ws.iter_rows(min_row=header_row + 1, values_only=True):
+        for values in source_rows:
             values = [_text(value) for value in values]
             if not any(values):
                 continue

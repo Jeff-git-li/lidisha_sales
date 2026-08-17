@@ -33,6 +33,11 @@ BSERP daily sales export
 → clear relevant caches
 ```
 
+Inventory snapshot imports use the existing manual inventory importer and support Excel/CSV source files.
+CSV inventory exports may use split headers like the BSERP sales CSV exports; the importer merges adjacent
+header rows and falls back to an `YYYYMMDD` date embedded in the filename, such as `inventory-20260817.CSV`,
+when the file body does not include a date marker.
+
 ## 3. Supported Files
 
 Supported:
